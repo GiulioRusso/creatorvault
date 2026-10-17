@@ -1,4 +1,4 @@
-<img src="doc/logo.png" width="72" align="left" alt="creatorvault logo">
+<img src="doc/logo.svg" width="72" align="left" alt="creatorvault logo">
 
 # creatorvault
 
@@ -6,7 +6,7 @@
 
 <br clear="left">
 
-[![CI](https://github.com/GiulioRusso/IG2OBS/actions/workflows/ci.yml/badge.svg)](https://github.com/GiulioRusso/IG2OBS/actions/workflows/ci.yml)
+[![CI](https://github.com/GiulioRusso/creatorvault/actions/workflows/ci.yml/badge.svg)](https://github.com/GiulioRusso/creatorvault/actions/workflows/ci.yml)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
@@ -45,7 +45,7 @@ The repo also holds other small creator utilities. See [Other tools](#other-tool
 ## Quickstart
 
 ```bash
-git clone https://github.com/GiulioRusso/IG2OBS.git && cd IG2OBS
+git clone https://github.com/GiulioRusso/creatorvault.git && cd creatorvault
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e '.[xlsx]'          # or: pipx install '.[xlsx]'
 

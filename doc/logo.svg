@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4338CA"/>
+      <stop offset="1" stop-color="#0E7490"/>
+    </linearGradient>
+    <linearGradient id="tag" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FCD34D"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- archive: two cards stacked behind the front note -->
+  <rect x="150" y="96" width="220" height="280" rx="24" fill="#FFFFFF" opacity="0.25" transform="rotate(-10 260 236)"/>
+  <rect x="146" y="106" width="220" height="280" rx="24" fill="#FFFFFF" opacity="0.5" transform="rotate(-4 256 246)"/>
+  <!-- front note -->
+  <rect x="142" y="120" width="220" height="280" rx="24" fill="#FFFFFF"/>
+  <rect x="172" y="152" width="160" height="96" rx="14" fill="#C7D2FE"/>
+  <path d="M184 236 l36 -42 l28 30 l18 -18 l54 30 z" fill="#4338CA" opacity="0.85"/>
+  <circle cx="296" cy="178" r="12" fill="#FFFFFF"/>
+  <rect x="172" y="272" width="160" height="16" rx="8" fill="#4338CA" opacity="0.8"/>
+  <rect x="172" y="304" width="120" height="16" rx="8" fill="#4338CA" opacity="0.5"/>
+  <rect x="172" y="336" width="140" height="16" rx="8" fill="#4338CA" opacity="0.5"/>
+  <!-- tag -->
+  <g transform="rotate(-30 360 360)">
+    <path d="M300 320 h96 a16 16 0 0 1 16 16 v48 a16 16 0 0 1 -16 16 h-96 l-36 -40 z" fill="url(#tag)" stroke="#FFFFFF" stroke-width="10" stroke-linejoin="round"/>
+    <circle cx="300" cy="360" r="10" fill="#FFFFFF"/>
+  </g>
+</svg>
