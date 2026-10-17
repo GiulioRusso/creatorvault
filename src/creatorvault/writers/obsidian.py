@@ -35,8 +35,7 @@ def yaml_quote(value: Any) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def write_notes(posts: list[Post], out_dir: Path, attachments_name: str,
-                only_top: bool) -> int:
+def write_notes(posts: list[Post], out_dir: Path, attachments_name: str, only_top: bool) -> int:
     notes_dir = out_dir / "posts"
     att_dir = out_dir / attachments_name
     notes_dir.mkdir(parents=True, exist_ok=True)
@@ -97,8 +96,7 @@ def write_notes(posts: list[Post], out_dir: Path, attachments_name: str,
         # it would otherwise get indexed by Obsidian as real tags (polluting
         # the taxonomy), and this way it's copyable with one click when you
         # want to repost.
-        body += ["", "## Caption", "", "```text",
-                 post.caption.strip() or "(no caption)", "```", ""]
+        body += ["", "## Caption", "", "```text", post.caption.strip() or "(no caption)", "```", ""]
         if post.match_note:
             body += ["> [!warning] Needs review", f"> {post.match_note}", ""]
         if post.permalink:

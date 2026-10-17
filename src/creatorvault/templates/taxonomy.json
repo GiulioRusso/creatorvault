@@ -1,5 +1,5 @@
 {
-  "_note": "Template for data/taxonomy.json (gitignored, your real taxonomy). Copy this file there and edit freely: the script uses that file both to build the tagging prompt and to validate the model's answers. Keys starting with _ are not axes. 'multi' indicates whether a post can have several values on that axis.",
+  "_note": "Template for config/taxonomy.json (`creatorvault init` copies it there). Edit freely: creatorvault uses that file both to build the tagging prompt and to validate the model's answers. Keys starting with _ are not axes. 'multi' indicates whether a post can have several values on that axis.",
 
   "_instructions": [
     "You are an archivist cataloguing posts from <describe your page's topic>.",

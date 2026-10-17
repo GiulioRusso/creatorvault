@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from creatorvault.models import Post, log
@@ -65,8 +65,10 @@ def prepare_export(path: Path, workdir: Path) -> Path:
             except (OSError, zipfile.BadZipFile):
                 failed += 1
     if failed:
-        log(f"[!] {failed} file(s) not extracted (undownloaded placeholders?): "
-            f"the corresponding notes will be missing media.")
+        log(
+            f"[!] {failed} file(s) not extracted (undownloaded placeholders?): "
+            f"the corresponding notes will be missing media."
+        )
     stamp.write_text(str(current_mtime))
     return dest
 
@@ -89,7 +91,7 @@ def find_posts_json(root: Path) -> Path:
 def parse_ig_export(root: Path) -> list[Post]:
     posts_json = find_posts_json(root)
     log(f"[i] Reading {posts_json.relative_to(root)}")
-    with open(posts_json, "r", encoding="utf-8") as f:
+    with open(posts_json, encoding="utf-8") as f:
         raw = json.load(f)
 
     if isinstance(raw, dict):
@@ -117,7 +119,7 @@ def parse_ig_export(root: Path) -> list[Post]:
         ts_raw = entry.get("creation_timestamp") or media_items[0].get("creation_timestamp")
         if not ts_raw:
             continue
-        ts = datetime.fromtimestamp(int(ts_raw), tz=timezone.utc)
+        ts = datetime.fromtimestamp(int(ts_raw), tz=UTC)
 
         paths = []
         for m in media_items:

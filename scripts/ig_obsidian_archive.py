@@ -14,4 +14,4 @@ from creatorvault.cli import main  # noqa: E402
 
 if __name__ == "__main__":
     print("[!] scripts/ig_obsidian_archive.py is deprecated: use `creatorvault`.", file=sys.stderr)
-    main()
+    main(["build", *sys.argv[1:]])

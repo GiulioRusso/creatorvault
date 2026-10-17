@@ -17,6 +17,7 @@ from creatorvault.tagging.taxonomy import (
     axis_values,
     build_tagging_prompt,
     clean_caption,
+    response_schema,
 )
 
 # Ollama server host. Defaults to the local one; can be pointed elsewhere via
@@ -27,16 +28,22 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_API_KEY = os.environ.get("OLLAMA_API_KEY")
 
 
-def ollama_chat(model: str, system: str, user: str) -> str:
-    """Calls Ollama's /api/chat (local or cloud) and returns the response text."""
-    body = json.dumps({
+def ollama_chat(model: str, system: str, user: str, schema: dict[str, Any] | None = None) -> str:
+    """Calls Ollama's /api/chat (local or cloud) and returns the response text.
+
+    With a schema, Ollama constrains the output to it (structured outputs).
+    """
+    request: dict[str, Any] = {
         "model": model,
         "stream": False,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-    }).encode("utf-8")
+    }
+    if schema:
+        request["format"] = schema
+    body = json.dumps(request).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if OLLAMA_API_KEY:
         headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
@@ -56,8 +63,20 @@ def ollama_chat(model: str, system: str, user: str) -> str:
     return data["message"]["content"]
 
 
-def tag_posts(posts: list[Post], taxonomy: dict[str, Any], model: str,
-              batch_size: int, cache_path: Path) -> None:
+def parse_answer(text: str) -> list[Any]:
+    """Model reply -> list of per-caption items ({"posts": [...]} or a bare list)."""
+    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    parsed = json.loads(text)
+    if isinstance(parsed, dict):
+        parsed = parsed.get("posts")
+    if not isinstance(parsed, list):
+        raise ValueError("expected a list of posts")
+    return parsed
+
+
+def tag_posts(
+    posts: list[Post], taxonomy: dict[str, Any], model: str, batch_size: int, cache_path: Path
+) -> None:
     cache: dict[str, dict[str, list[str]]] = {}
     if cache_path.exists():
         cache = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -65,6 +84,9 @@ def tag_posts(posts: list[Post], taxonomy: dict[str, Any], model: str,
     axes = axis_names(taxonomy)
     valid = {a: set(axis_values(taxonomy[a])) for a in axes}
     system = build_tagging_prompt(taxonomy)
+    # Ollama's cloud models don't support structured outputs yet: they rely on
+    # the prompt plus the validation below.
+    schema = None if model.endswith("-cloud") else response_schema(taxonomy)
 
     todo = []
     for p in posts:
@@ -78,23 +100,24 @@ def tag_posts(posts: list[Post], taxonomy: dict[str, Any], model: str,
         log("[i] All tags were already cached.")
         return
 
-    log(f"[i] To tag: {len(todo)} post(s) in {(len(todo) + batch_size - 1)//batch_size} call(s).")
+    log(f"[i] To tag: {len(todo)} post(s) in {(len(todo) + batch_size - 1) // batch_size} call(s).")
 
     for start in range(0, len(todo), batch_size):
-        batch = todo[start:start + batch_size]
-        payload = [
-            {"id": digest, "caption": clean_caption(p.caption)}
-            for digest, p in batch
-        ]
-        try:
-            text = ollama_chat(model, system, json.dumps(payload, ensure_ascii=False))
-            text = re.sub(r"^```(?:json)?|```$", "", text.strip(),
-                          flags=re.MULTILINE).strip()
-            parsed = json.loads(text)
-        except SystemExit:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            log(f"[!] Batch {start//batch_size + 1} failed ({exc}). Skipping it.")
+        batch = todo[start : start + batch_size]
+        payload = [{"id": digest, "caption": clean_caption(p.caption)} for digest, p in batch]
+        parsed = None
+        for attempt in (1, 2):  # one retry on malformed output
+            try:
+                parsed = parse_answer(
+                    ollama_chat(model, system, json.dumps(payload, ensure_ascii=False), schema)
+                )
+                break
+            except SystemExit:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log(f"[!] Batch {start // batch_size + 1} attempt {attempt} failed ({exc}).")
+        if parsed is None:
+            log(f"[!] Batch {start // batch_size + 1} skipped.")
             continue
 
         by_id = {str(item.get("id")): item for item in parsed if isinstance(item, dict)}
@@ -114,6 +137,5 @@ def tag_posts(posts: list[Post], taxonomy: dict[str, Any], model: str,
             post.tags = tags
             cache[digest] = tags
 
-        cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=1),
-                              encoding="utf-8")
-        log(f"    batch {start//batch_size + 1} ok")
+        cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
+        log(f"    batch {start // batch_size + 1} ok")

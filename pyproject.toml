@@ -5,13 +5,41 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "creatorvault"
 version = "0.1.0"
-description = "Turn your own social-media exports into a searchable Obsidian archive."
+description = "Turn your own social-media exports (Instagram + Meta Business Suite) into a searchable Obsidian archive: metrics, performance tiers, local-LLM tags. No API tokens."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Giulio Russo" }]
 requires-python = ">=3.11"
-dependencies = ["pyyaml"]
+dependencies = ["pyyaml", "tzdata"]
+keywords = ["obsidian", "instagram", "content-creators", "ollama", "local-llm", "cli"]
+
+[project.optional-dependencies]
+xlsx = ["openpyxl"]
+shop = ["requests", "beautifulsoup4"]
+dev = ["pytest", "pytest-cov", "ruff", "openpyxl", "requests", "beautifulsoup4"]
 
 [project.scripts]
 creatorvault = "creatorvault.cli:main"
 
+[project.urls]
+Repository = "https://github.com/GiulioRusso/IG2OBS"
+
+[tool.setuptools.package-data]
+creatorvault = ["templates/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/creatorvault"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["tests/golden"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B904"]

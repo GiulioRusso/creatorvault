@@ -8,8 +8,9 @@ from typing import Any
 from creatorvault.models import Post, log
 
 
-def join_posts(posts: list[Post], insights: list[dict[str, Any]],
-               tolerance_min: int) -> list[dict[str, Any]]:
+def join_posts(
+    posts: list[Post], insights: list[dict[str, Any]], tolerance_min: int
+) -> list[dict[str, Any]]:
     """
     Matches each insights row to the closest post in time.
     Ambiguous cases are flagged, not resolved automatically.
@@ -22,12 +23,14 @@ def join_posts(posts: list[Post], insights: list[dict[str, Any]],
         candidates = [p for p in posts if abs(p.timestamp - rec["publish_time"]) <= tol]
 
         if not candidates:
-            review.append({
-                "issue": "no matching post",
-                "insights_publish_time": rec["publish_time"].isoformat(),
-                "permalink": rec["permalink"] or "",
-                "description": rec["description"][:80],
-            })
+            review.append(
+                {
+                    "issue": "no matching post",
+                    "insights_publish_time": rec["publish_time"].isoformat(),
+                    "permalink": rec["permalink"] or "",
+                    "description": rec["description"][:80],
+                }
+            )
             continue
 
         if len(candidates) > 1:
@@ -40,30 +43,37 @@ def join_posts(posts: list[Post], insights: list[dict[str, Any]],
                     reverse=True,
                 )
                 best, second = scored[0], scored[1]
-                if _similarity(desc, best.caption.lower()) - \
-                   _similarity(desc, second.caption.lower()) > 0.25:
+                if (
+                    _similarity(desc, best.caption.lower())
+                    - _similarity(desc, second.caption.lower())
+                    > 0.25
+                ):
                     candidates = [best]
 
         if len(candidates) > 1:
-            review.append({
-                "issue": f"{len(candidates)} posts in the same time window",
-                "insights_publish_time": rec["publish_time"].isoformat(),
-                "permalink": rec["permalink"] or "",
-                "description": rec["description"][:80],
-                "candidates": " | ".join(p.timestamp.isoformat() for p in candidates),
-            })
+            review.append(
+                {
+                    "issue": f"{len(candidates)} posts in the same time window",
+                    "insights_publish_time": rec["publish_time"].isoformat(),
+                    "permalink": rec["permalink"] or "",
+                    "description": rec["description"][:80],
+                    "candidates": " | ".join(p.timestamp.isoformat() for p in candidates),
+                }
+            )
             for p in candidates:
                 p.match_note = "ambiguous join: metrics not assigned, see review.csv"
             continue
 
         post = candidates[0]
         if post.key in used:
-            review.append({
-                "issue": "post already matched to another row",
-                "insights_publish_time": rec["publish_time"].isoformat(),
-                "permalink": rec["permalink"] or "",
-                "description": rec["description"][:80],
-            })
+            review.append(
+                {
+                    "issue": "post already matched to another row",
+                    "insights_publish_time": rec["publish_time"].isoformat(),
+                    "permalink": rec["permalink"] or "",
+                    "description": rec["description"][:80],
+                }
+            )
             continue
 
         post.metrics = rec["metrics"]
@@ -71,8 +81,7 @@ def join_posts(posts: list[Post], insights: list[dict[str, Any]],
         used.add(post.key)
 
     matched = len(used)
-    log(f"[i] Join: {matched}/{len(posts)} post(s) with metrics, "
-        f"{len(review)} row(s) to review.")
+    log(f"[i] Join: {matched}/{len(posts)} post(s) with metrics, {len(review)} row(s) to review.")
     return review
 
 

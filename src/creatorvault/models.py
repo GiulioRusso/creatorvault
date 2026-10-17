@@ -15,15 +15,15 @@ def log(msg: str) -> None:
 
 @dataclass
 class Post:
-    key: str                        # stable identifier, derived from the timestamp
-    timestamp: datetime             # UTC
+    key: str  # stable identifier, derived from the timestamp
+    timestamp: datetime  # UTC
     caption: str
-    media: list[Path] = field(default_factory=list)   # absolute paths inside the export
+    media: list[Path] = field(default_factory=list)  # absolute paths inside the export
     metrics: dict[str, float] = field(default_factory=dict)
     tags: dict[str, list[str]] = field(default_factory=dict)
     permalink: str | None = None
     tier: str | None = None
-    match_note: str | None = None   # warnings about the join
+    match_note: str | None = None  # warnings about the join
 
     @property
     def is_carousel(self) -> bool:

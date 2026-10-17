@@ -14,5 +14,5 @@ def test_golden(run, tmp_path, monkeypatch):
     cfg = write_config(run, tmp_path)
     with mock_ollama() as host:
         monkeypatch.setattr(ollama, "OLLAMA_HOST", host)
-        cli.main(["--config", str(cfg)])
+        cli.main(["build", "--config", str(cfg)])
     assert snapshot(run_dir(tmp_path)) == snapshot(GOLDEN / run)
