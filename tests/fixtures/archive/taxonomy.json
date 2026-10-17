@@ -1,0 +1,27 @@
+{
+  "_instructions": [
+    "You are an archivist cataloguing posts from a page about space exploration.",
+    "For each caption, assign the correct values for every axis of the taxonomy below."
+  ],
+  "program": {
+    "multi": false,
+    "description": "Space program the post is about",
+    "values": [
+      "apollo",
+      "gemini",
+      "saturn",
+      "skylab",
+      "voyager"
+    ]
+  },
+  "angle": {
+    "multi": true,
+    "description": "Storytelling angle",
+    "values": [
+      "anecdote",
+      "photo",
+      "video",
+      "quote"
+    ]
+  }
+}
