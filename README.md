@@ -1,14 +1,10 @@
-<img src="doc/logo.svg" width="72" align="left" alt="creatorvault logo">
-
 # creatorvault
 
 **Turn your own social-media exports into a local, searchable Obsidian archive: metrics, performance tiers and local-LLM tags.**
 
-<br clear="left">
-
-[![CI](https://github.com/GiulioRusso/creatorvault/actions/workflows/ci.yml/badge.svg)](https://github.com/GiulioRusso/creatorvault/actions/workflows/ci.yml)
-![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
+[![CI](https://img.shields.io/github/actions/workflow/status/GiulioRusso/creatorvault/ci.yml?branch=main&label=CI&logo=github)](https://github.com/GiulioRusso/creatorvault/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 One note per post, with its media, caption, metrics and tags, plus a Dataview index (best of each year, coverage per topic, content gaps, old posts worth reposting). It works today with the Instagram export and Meta Business Suite insights. Here is a note generated from the repo's synthetic test fixtures:
 
