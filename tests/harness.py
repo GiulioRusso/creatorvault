@@ -5,10 +5,10 @@ from __future__ import annotations
 import copy
 import json
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Iterator
 
 import yaml
 
@@ -53,8 +53,11 @@ def run_dir(tmp: Path) -> Path:
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
-    return {p.relative_to(root).as_posix(): p.read_bytes()
-            for p in sorted(root.rglob("*")) if p.is_file()}
+    return {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file()
+    }
 
 
 def mock_answer(item_id: str, taxonomy: dict) -> dict:
@@ -97,7 +100,7 @@ def mock_ollama(taxonomy_path: Path = FIXTURES / "taxonomy.json") -> Iterator[st
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True)
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"

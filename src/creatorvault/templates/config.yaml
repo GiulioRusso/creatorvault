@@ -1,8 +1,7 @@
-# Template for ig_obsidian_archive.py.
-# Copy this file to config.yaml (same folder) and fill in your own paths —
-# config.yaml is gitignored, config_schema.yaml is the tracked template.
-# Paths are relative to the folder you run the script from (or absolute).
-# The script takes no other argument besides --config.
+# creatorvault config. `creatorvault init` copies this template to
+# ./config/config.yaml: fill in your own paths there.
+# Paths are relative to the folder you run creatorvault from (or absolute).
+# Check it with `creatorvault doctor`, then run `creatorvault build`.
 
 paths:
   # Instagram export: the ZIP from "Download your information" (or the

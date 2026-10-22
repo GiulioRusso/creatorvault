@@ -1,5 +1,5 @@
 """
-Tests for shop_to_meta_catalog.py's product-page parsing.
+Tests for creatorvault.shop_catalog's product-page parsing.
 
 Runs against fixture HTML (tests/fixtures/), no network. Fixtures cover the
 two most common shapes: a page with full JSON-LD "Product" data, and a page
@@ -8,15 +8,12 @@ that only has Open Graph tags (JSON-LD absent or incomplete).
 
 from __future__ import annotations
 
-import sys
 import unittest
 from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-
-from shop_to_meta_catalog import (
+from creatorvault.shop_catalog import (
     META_CATALOG_FIELDS,
     build_product_info,
     format_price,

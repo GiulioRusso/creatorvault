@@ -47,12 +47,33 @@ def build_tagging_prompt(taxonomy: dict[str, Any]) -> str:
 
     lines += [
         "",
-        "Respond ONLY with a JSON array, one object per caption, in the same",
-        "order received, in this format:",
-        '[{"id": "<received id>", ' + ", ".join(f'"{a}": []' for a in axes) + "}]",
+        "Respond ONLY with a JSON object holding one entry per caption, in the",
+        "same order received, in this format:",
+        '{"posts": [{"id": "<received id>", ' + ", ".join(f'"{a}": []' for a in axes) + "}]}",
         "No text before or after. No markdown fences.",
     ]
     return "\n".join(lines)
+
+
+def response_schema(taxonomy: dict[str, Any]) -> dict[str, Any]:
+    """JSON schema for Ollama's `format`: only taxonomy values are allowed."""
+    item: dict[str, Any] = {"id": {"type": "string"}}
+    for axis in axis_names(taxonomy):
+        spec = taxonomy[axis]
+        values = {"type": "array", "items": {"type": "string", "enum": axis_values(spec)}}
+        if not spec.get("multi"):
+            values["maxItems"] = 1
+        item[axis] = values
+    return {
+        "type": "object",
+        "properties": {
+            "posts": {
+                "type": "array",
+                "items": {"type": "object", "properties": item, "required": list(item)},
+            }
+        },
+        "required": ["posts"],
+    }
 
 
 def clean_caption(caption: str, max_chars: int = 1200) -> str:

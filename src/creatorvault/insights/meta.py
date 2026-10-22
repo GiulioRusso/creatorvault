@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +16,12 @@ from creatorvault.sources.instagram import fix_mojibake
 # header spellings.
 COLUMN_ALIASES = {
     "publish_time": [
-        "publish time", "ora di pubblicazione", "data di pubblicazione",
-        "orario di pubblicazione", "date", "data",
+        "publish time",
+        "ora di pubblicazione",
+        "data di pubblicazione",
+        "orario di pubblicazione",
+        "date",
+        "data",
     ],
     "permalink": ["permalink", "link permanente", "link", "url"],
     "description": ["description", "descrizione", "didascalia", "caption", "titolo del post"],
@@ -37,7 +41,7 @@ def load_table(path: Path) -> tuple[list[str], list[list[str]]]:
     suffix = path.suffix.lower()
     if suffix in (".csv", ".tsv", ".txt"):
         # Meta exports in UTF-8, sometimes with a BOM
-        with open(path, "r", encoding="utf-8-sig", newline="") as f:
+        with open(path, encoding="utf-8-sig", newline="") as f:
             sample = f.read(8192)
             f.seek(0)
             try:
@@ -71,7 +75,7 @@ def load_table(path: Path) -> tuple[list[str], list[list[str]]]:
         if any(alias in lowered for alias in COLUMN_ALIASES["publish_time"]):
             header_idx = i
             break
-    return rows[header_idx], rows[header_idx + 1:]
+    return rows[header_idx], rows[header_idx + 1 :]
 
 
 def map_columns(header: list[str]) -> dict[str, int]:
@@ -92,9 +96,15 @@ def map_columns(header: list[str]) -> dict[str, int]:
 
 
 DATE_FORMATS = [
-    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
-    "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
-    "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M", "%m/%d/%Y",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
+    "%d/%m/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%d/%m/%Y",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y %H:%M",
+    "%m/%d/%Y",
     "%Y-%m-%dT%H:%M:%S",
 ]
 
@@ -107,7 +117,7 @@ def parse_datetime(value: str, tz: Any) -> datetime | None:
     for fmt in DATE_FORMATS:
         try:
             naive = datetime.strptime(value, fmt)
-            return naive.replace(tzinfo=tz).astimezone(timezone.utc)
+            return naive.replace(tzinfo=tz).astimezone(UTC)
         except ValueError:
             continue
     return None
@@ -131,9 +141,7 @@ def discover_insight_files(insights_dir: Path) -> list[Path]:
         raise SystemExit(f"[!] Insights folder not found: {insights_dir}")
     files = sorted(p for p in insights_dir.iterdir() if p.suffix.lower() in INSIGHTS_EXT)
     if not files:
-        raise SystemExit(
-            f"[!] No insights file (.csv/.tsv/.xlsx) in {insights_dir}."
-        )
+        raise SystemExit(f"[!] No insights file (.csv/.tsv/.xlsx) in {insights_dir}.")
     return files
 
 
@@ -158,9 +166,10 @@ def parse_insights(paths: list[Path], tz: Any) -> list[dict[str, Any]]:
 
         added = 0
         for row in rows:
+
             def cell(name: str) -> str:
-                i = cols.get(name)
-                return row[i] if i is not None and i < len(row) else ""
+                i = cols.get(name)  # noqa: B023 (called within the same iteration)
+                return row[i] if i is not None and i < len(row) else ""  # noqa: B023
 
             dt = parse_datetime(cell("publish_time"), tz)
             if dt is None:
@@ -174,8 +183,16 @@ def parse_insights(paths: list[Path], tz: Any) -> list[dict[str, Any]]:
 
             metrics = {
                 m: to_float(cell(m))
-                for m in ("reach", "impressions", "likes", "comments",
-                          "shares", "saves", "follows", "engagement")
+                for m in (
+                    "reach",
+                    "impressions",
+                    "likes",
+                    "comments",
+                    "shares",
+                    "saves",
+                    "follows",
+                    "engagement",
+                )
                 if m in cols
             }
             if not metrics.get("engagement"):
@@ -190,12 +207,14 @@ def parse_insights(paths: list[Path], tz: Any) -> list[dict[str, Any]]:
                     metrics["engagement"] / metrics["reach"] * 100, 2
                 )
 
-            records.append({
-                "publish_time": dt,
-                "permalink": permalink,
-                "description": fix_mojibake(cell("description")),
-                "metrics": metrics,
-            })
+            records.append(
+                {
+                    "publish_time": dt,
+                    "permalink": permalink,
+                    "description": fix_mojibake(cell("description")),
+                    "metrics": metrics,
+                }
+            )
             added += 1
         log(f"[i] {path.name}: {added} usable row(s).")
 
