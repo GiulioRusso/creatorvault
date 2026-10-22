@@ -23,7 +23,7 @@ dev = ["pytest", "pytest-cov", "ruff", "openpyxl", "requests", "beautifulsoup4"]
 creatorvault = "creatorvault.cli:main"
 
 [project.urls]
-Repository = "https://github.com/GiulioRusso/IG2OBS"
+Repository = "https://github.com/GiulioRusso/creatorvault"
 
 [tool.setuptools.package-data]
 creatorvault = ["templates/*"]
