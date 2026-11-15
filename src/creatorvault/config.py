@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
+from creatorvault.dedup import DedupConfig
+
 # Model used for tagging, via Ollama (local or cloud). Free.
 # Local: any tag pulled with `ollama pull <model>`.
 # Cloud (needs `ollama signin`, runs on Ollama's servers): tag with a
@@ -74,6 +76,7 @@ class Settings:
     only_top: bool
     attachments_dirname: str
     timestamped_out: bool
+    dedup: DedupConfig
 
 
 def resolve(cfg: dict[str, Any], export: Path | None = None, out: Path | None = None) -> Settings:
@@ -110,6 +113,7 @@ def resolve(cfg: dict[str, Any], export: Path | None = None, out: Path | None = 
         only_top=bool(advanced_cfg.get("only_top", DEFAULT_ONLY_TOP)),
         attachments_dirname=advanced_cfg.get("attachments_dirname", DEFAULT_ATTACHMENTS_DIRNAME),
         timestamped_out=bool(advanced_cfg.get("timestamped_out", False)),
+        dedup=DedupConfig.from_dict(cfg.get("dedup") or {}),
     )
 
 

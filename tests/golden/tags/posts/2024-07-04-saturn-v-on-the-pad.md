@@ -5,6 +5,12 @@ time: 18:30
 type: carousel
 permalink: "https://example.com/p/p2"
 tier: average
+status: published
+times_published: 1
+first_published: 2024-07-04
+last_published: 2024-07-04
+published: [2024-07-04]
+best_engagement: 475
 comments: 10
 engagement: 475
 engagement_rate: 5.94
@@ -32,5 +38,11 @@ tags:
 Saturn V on the pad
 Three frames from the rollout. #nasa
 ```
+
+## Publications
+
+| Date | Source | Link | Reach | Engagement | Rate | Tier |
+|---|---|---|---|---|---|---|
+| 2024-07-04 18:30 | Instagram | [open](https://example.com/p/p2) | 8000 | 475 | 5.94 | average |
 
 [Open on Instagram](https://example.com/p/p2)

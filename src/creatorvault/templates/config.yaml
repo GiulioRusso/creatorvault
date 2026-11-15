@@ -53,6 +53,43 @@ tagging:
   # warning anyway.
   enabled: true
 
+dedup:
+  # Reposts of the same content become one note, with every publication
+  # listed. Signals: NASA photo code in the caption, image fingerprint
+  # (needs `pip install 'creatorvault[dedup]'`), caption similarity.
+  enabled: true
+
+  # Max Hamming distance between two 64-bit image fingerprints (0-64) for
+  # them to count as the same image.
+  image_distance: 6
+
+  # Caption similarity (0-1): >= caption_same merges; between caption_maybe
+  # and caption_same is written to dedup_review.csv instead.
+  caption_same: 0.90
+  caption_maybe: 0.75
+
+  # Regexes for photo codes. Same code = same content; two different codes
+  # are never merged, however similar the captions are.
+  # photo_id_patterns:
+  #   - 'AS\d{2}-\d{2,3}-\d{4,5}'
+  #   - 'S\d{2}-\d{4,5}(?:_G\d{2}(?:-S)?)?'
+  #   - 'GT\d+-\d+-\d+'
+  #   - 'STS\d{2,3}-\d+-\d+'
+  #   - 'ISS\d{3}-E-\d+'
+
+  # Whole caption lines ignored when comparing (regexes, case-insensitive).
+  # boilerplate:
+  #   - 'check (the )?link in (my |our )?bio.*'
+  #   - '[.\s]+'
+
+  # Manual decisions, read on every build. Each entry is a permalink, a
+  # Meta draft id or a date/timestamp prefix (2024-06-10, 2024-06-10T16:00):
+  #   merge:
+  #     - ["https://www.instagram.com/p/AAA/", "2023-05-01"]
+  #   split:
+  #     - ["https://www.instagram.com/p/BBB/", "https://www.instagram.com/p/CCC/"]
+  # overrides: config/dedup_overrides.yaml
+
 advanced:
   # These rarely need changing per run (unlike tiers/tagging above). All
   # optional: comment one out to fall back to the default shown.

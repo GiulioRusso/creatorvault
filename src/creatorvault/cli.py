@@ -12,6 +12,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from creatorvault.config import Settings, load_config, load_timezone, resolve
+from creatorvault.dedup import dedup
 from creatorvault.insights.meta import (
     discover_insight_files,
     load_table,
@@ -19,7 +20,7 @@ from creatorvault.insights.meta import (
     parse_insights,
 )
 from creatorvault.join import join_posts
-from creatorvault.models import Content, log
+from creatorvault.models import log
 from creatorvault.sources.instagram import (
     POSTS_JSON_CANDIDATES,
     find_posts_json,
@@ -128,7 +129,9 @@ def build(s: Settings) -> None:
         for p in posts:
             p.tier = "no-data"
 
-    contents = [Content([p]) for p in posts]
+    contents, dedup_review = dedup(posts, s.dedup)
+    n_contents = len(contents)
+    n_groups = sum(len(c.publications) > 1 for c in contents)
 
     if s.only_top:
         contents = [c for c in contents if c.best_tier in ("top", None)]
@@ -141,16 +144,17 @@ def build(s: Settings) -> None:
     written = write_notes(contents, out_dir, s.attachments_dirname)
     written.append(write_index(out_dir, taxonomy))
     written += write_review(review, out_dir)
+    written += write_review(dedup_review, out_dir, "dedup_review.csv")
     sync_manifest(out_dir, written)
 
     print_summary(
         [
             ("posts read", n_read),
-            ("unique contents", len(contents)),
-            ("duplicate groups", 0),
+            ("unique contents", n_contents),
+            ("duplicate groups", n_groups),
             ("drafts", 0),
             ("notes written", len(contents)),
-            ("rows to review", len(review)),
+            ("rows to review", len(review) + len(dedup_review)),
         ]
     )
     log(f"\n[OK] Vault in {out_dir}: open it in Obsidian and start from 'Post Archive.md'.")

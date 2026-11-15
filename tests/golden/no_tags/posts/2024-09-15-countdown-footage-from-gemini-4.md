@@ -5,6 +5,12 @@ time: 20:00
 type: single
 permalink: "https://example.com/p/p3"
 tier: top
+status: published
+times_published: 1
+first_published: 2024-09-15
+last_published: 2024-09-15
+published: [2024-09-15]
+best_engagement: 2080
 comments: 80
 engagement: 2080
 engagement_rate: 10.4
@@ -27,5 +33,11 @@ tags:
 ```text
 Countdown footage from Gemini 4
 ```
+
+## Publications
+
+| Date | Source | Link | Reach | Engagement | Rate | Tier |
+|---|---|---|---|---|---|---|
+| 2024-09-15 20:00 | Instagram | [open](https://example.com/p/p3) | 20000 | 2080 | 10.4 | top |
 
 [Open on Instagram](https://example.com/p/p3)

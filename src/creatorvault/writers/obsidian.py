@@ -100,6 +100,17 @@ def write_notes(contents: list[Content], out_dir: Path, attachments_name: str) -
             fm.append(f"permalink: {yaml_quote(best.permalink)}")
         if content.best_tier:
             fm.append(f"tier: {content.best_tier}")
+        fm.append(f"status: {content.status}")
+        dates = [f"{p.timestamp:%Y-%m-%d}" for p in content.published]
+        fm.append(f"times_published: {len(dates)}")
+        if dates:
+            fm.append(f"first_published: {dates[0]}")
+            fm.append(f"last_published: {dates[-1]}")
+            fm.append(f"published: [{', '.join(dates)}]")
+        if content.photo_ids:
+            fm.append(f"photo_ids: [{', '.join(yaml_quote(i) for i in content.photo_ids)}]")
+        if content.best_engagement is not None:
+            fm.append(f"best_engagement: {int(content.best_engagement)}")
         for metric, value in sorted(best.metrics.items()):
             if metric == "engagement_rate":
                 fm.append(f"{metric}: {value}")
@@ -112,6 +123,8 @@ def write_notes(contents: list[Content], out_dir: Path, attachments_name: str) -
                 all_tags.append(f"{axis}/{v}")
         if content.best_tier:
             all_tags.append(f"tier/{content.best_tier}")
+        if len(dates) > 1:
+            all_tags.append("repost/yes")
         fm.append("tags:")
         for t in all_tags:
             fm.append(f"  - {t}")
@@ -125,8 +138,10 @@ def write_notes(contents: list[Content], out_dir: Path, attachments_name: str) -
         # want to repost.
         caption = content.caption.strip() or "(no caption)"
         body += ["", "## Caption", "", "```text", caption, "```", ""]
-        if content.match_note:
-            body += ["> [!warning] Needs review", f"> {content.match_note}", ""]
+        for note in (content.match_note, content.review_note):
+            if note:
+                body += ["> [!warning] Needs review", f"> {note}", ""]
+        body += publications_table(content)
         if best.permalink:
             body += [f"[Open on Instagram]({best.permalink})", ""]
 
@@ -134,6 +149,32 @@ def write_notes(contents: list[Content], out_dir: Path, attachments_name: str) -
         written.append(note_path)
 
     return written
+
+
+def publications_table(content: Content) -> list[str]:
+    rows = [
+        "## Publications",
+        "",
+        "| Date | Source | Link | Reach | Engagement | Rate | Tier |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for p in sorted(content.publications, key=lambda p: p.timestamp):
+        if p.draft_id:
+            source, link = "Meta draft", f"`{p.draft_id}`"
+        else:
+            source, link = "Instagram", f"[open]({p.permalink})" if p.permalink else ""
+        m = p.metrics
+        cells = [
+            f"{p.timestamp:%Y-%m-%d %H:%M}",
+            source,
+            link,
+            str(int(m["reach"])) if "reach" in m else "",
+            str(int(m["engagement"])) if "engagement" in m else "",
+            str(m.get("engagement_rate", "")),
+            p.tier or "",
+        ]
+        rows.append("| " + " | ".join(cells) + " |")
+    return [*rows, ""]
 
 
 def write_index(out_dir: Path, taxonomy: dict[str, Any]) -> Path:

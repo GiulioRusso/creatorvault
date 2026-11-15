@@ -5,6 +5,12 @@ time: 16:00
 type: single
 permalink: "https://example.com/p/p1"
 tier: top
+status: published
+times_published: 1
+first_published: 2024-06-10
+last_published: 2024-06-10
+published: [2024-06-10]
+best_engagement: 1090
 comments: 40
 engagement: 1090
 engagement_rate: 9.08
@@ -30,5 +36,11 @@ tags:
 Apollo 11 lands on the Moon
 The Eagle has landed. #apollo #space
 ```
+
+## Publications
+
+| Date | Source | Link | Reach | Engagement | Rate | Tier |
+|---|---|---|---|---|---|---|
+| 2024-06-10 16:00 | Instagram | [open](https://example.com/p/p1) | 12000 | 1090 | 9.08 | top |
 
 [Open on Instagram](https://example.com/p/p1)

@@ -17,7 +17,8 @@ keywords = ["obsidian", "instagram", "content-creators", "ollama", "local-llm", 
 [project.optional-dependencies]
 xlsx = ["openpyxl"]
 shop = ["requests", "beautifulsoup4"]
-dev = ["pytest", "pytest-cov", "ruff", "openpyxl", "requests", "beautifulsoup4"]
+dedup = ["Pillow"]
+dev = ["pytest", "pytest-cov", "ruff", "openpyxl", "requests", "beautifulsoup4", "Pillow"]
 
 [project.scripts]
 creatorvault = "creatorvault.cli:main"

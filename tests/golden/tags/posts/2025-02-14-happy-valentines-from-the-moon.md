@@ -5,6 +5,12 @@ time: 21:00
 type: single
 permalink: "https://example.com/p/p5"
 tier: top
+status: published
+times_published: 1
+first_published: 2025-02-14
+last_published: 2025-02-14
+published: [2025-02-14]
+best_engagement: 800
 comments: 30
 engagement: 800
 engagement_rate: 8.89
@@ -28,5 +34,11 @@ tags:
 ```text
 🚀🌕 Happy Valentine's from the Moon
 ```
+
+## Publications
+
+| Date | Source | Link | Reach | Engagement | Rate | Tier |
+|---|---|---|---|---|---|---|
+| 2025-02-14 21:00 | Instagram | [open](https://example.com/p/p5) | 9000 | 800 | 8.89 | top |
 
 [Open on Instagram](https://example.com/p/p5)
