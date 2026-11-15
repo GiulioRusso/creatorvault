@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import socket
 import zipfile
 
@@ -37,8 +39,18 @@ def edit_config(tmp_path, run="tags", **changes):
 def run_doctor(path, capsys, monkeypatch, host=None):
     with mock_ollama() as mock_host:
         monkeypatch.setattr(ollama, "OLLAMA_HOST", host or mock_host)
-        ok = cli.doctor(path)
+        try:
+            cli.main(["doctor", "--config", str(path)])
+            ok = True
+        except SystemExit as exc:
+            ok = exc.code == 0
     return ok, capsys.readouterr().out
+
+
+def dead_host():
+    with socket.socket() as s:  # grab a free port, then close it
+        s.bind(("127.0.0.1", 0))
+        return f"http://127.0.0.1:{s.getsockname()[1]}"
 
 
 def test_doctor_good_config(tmp_path, capsys, monkeypatch):
@@ -59,19 +71,19 @@ def test_doctor_cli_exit_code(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize(
-    ("changes", "failing", "message"),
+    ("changes", "status", "check", "message"),
     [
-        ({"advanced__insights_tz": "Europe/Atlantis"}, "timezone", "Unknown timezone"),
-        ({"tagging__model": "llama9:404b"}, "ollama", "ollama pull llama9:404b"),
-        ({"paths__ig_export": "/nope.zip"}, "export", "not found"),
-        ({"paths__insights_dir": "/nope"}, "insights", "Insights folder not found"),
-        ({"paths__taxonomy": "/nope.json"}, "taxonomy", "not found"),
+        ({"advanced__insights_tz": "Europe/Atlantis"}, "FAIL", "timezone", "Unknown timezone"),
+        ({"paths__ig_export": "/nope.zip"}, "FAIL", "export", "not found"),
+        ({"tagging__model": "llama9:404b"}, "WARN", "ollama", "ollama pull llama9:404b"),
+        ({"paths__insights_dir": "/nope"}, "WARN", "insights", "archive without metrics"),
+        ({"paths__taxonomy": "/nope.json"}, "WARN", "taxonomy", "tagging disabled"),
     ],
 )
-def test_doctor_bad_configs(tmp_path, capsys, monkeypatch, changes, failing, message):
+def test_doctor_bad_configs(tmp_path, capsys, monkeypatch, changes, status, check, message):
     ok, out = run_doctor(edit_config(tmp_path, **changes), capsys, monkeypatch)
-    assert not ok
-    line = next(line for line in out.splitlines() if line.startswith(f"FAIL  {failing}"))
+    assert ok is (status == "WARN")  # only FAIL makes doctor exit non-zero
+    line = next(line for line in out.splitlines() if line.startswith(f"{status}  {check}"))
     assert message in line
 
 
@@ -109,7 +121,7 @@ def test_doctor_bad_files(tmp_path, capsys, monkeypatch):
         monkeypatch,
     )
     assert "no posts JSON in the ZIP" in out
-    assert "invalid JSON" in out
+    assert "Invalid taxonomy JSON" in out
 
 
 def test_doctor_export_folder_and_posts_fallback(tmp_path, capsys, monkeypatch):
@@ -125,11 +137,9 @@ def test_doctor_export_folder_and_posts_fallback(tmp_path, capsys, monkeypatch):
 
 
 def test_doctor_ollama_unreachable_and_skips(tmp_path, capsys, monkeypatch):
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        dead = f"http://127.0.0.1:{s.getsockname()[1]}"
+    dead = dead_host()
     ok, out = run_doctor(write_config("tags", tmp_path), capsys, monkeypatch, host=dead)
-    assert not ok and "can't reach" in out
+    assert ok and "WARN  ollama" in out and "can't reach" in out
 
     ok, out = run_doctor(
         edit_config(tmp_path, tagging__model="qwen3:235b-cloud"), capsys, monkeypatch
@@ -140,9 +150,9 @@ def test_doctor_ollama_unreachable_and_skips(tmp_path, capsys, monkeypatch):
     assert ok and "tagging disabled" in out
 
 
-def test_doctor_missing_config(tmp_path, capsys):
-    assert not cli.doctor(tmp_path / "missing.yaml")
-    assert "FAIL  config" in capsys.readouterr().out
+def test_doctor_missing_config(tmp_path, capsys, monkeypatch):
+    ok, out = run_doctor(tmp_path / "missing.yaml", capsys, monkeypatch)
+    assert not ok and "FAIL  config" in out
 
 
 def test_build_rejects_unknown_timezone(tmp_path):
@@ -151,23 +161,76 @@ def test_build_rejects_unknown_timezone(tmp_path):
         cli.main(["build", "--config", str(path)])
 
 
-@pytest.mark.parametrize(
-    ("changes", "message"),
-    [
-        ({"paths__ig_export": "/nope.zip"}, "Instagram export not found"),
-        ({"paths__taxonomy": "/nope.json"}, "Taxonomy not found"),
-    ],
-)
-def test_build_missing_inputs(tmp_path, changes, message):
-    with pytest.raises(SystemExit, match=message):
-        cli.main(["build", "--config", str(edit_config(tmp_path, **changes))])
-
-
-def test_build_missing_path_key(tmp_path):
-    path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump({"paths": {"ig_export": "x"}}))
-    with pytest.raises(SystemExit, match="Missing 'paths.insights_dir'"):
+def test_build_missing_export(tmp_path):
+    path = edit_config(tmp_path, paths__ig_export="/nope.zip")
+    with pytest.raises(SystemExit, match="Instagram export not found"):
         cli.main(["build", "--config", str(path)])
+
+
+def test_build_broken_taxonomy(tmp_path):
+    taxonomy = tmp_path / "taxonomy.json"
+    taxonomy.write_text("{broken")
+    path = edit_config(tmp_path, paths__taxonomy=str(taxonomy))
+    with pytest.raises(SystemExit, match="Invalid taxonomy JSON"):
+        cli.main(["build", "--config", str(path)])
+
+
+def test_build_without_config(tmp_path, monkeypatch, capsys):
+    """`creatorvault build export.zip` alone: no config, no insights, no taxonomy,
+    Ollama down. Every post still gets a note."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(ollama, "OLLAMA_HOST", dead_host())
+    cli.main(["build", str(FIXTURES / "instagram-export.zip")])
+    notes = list((tmp_path / "vault" / "posts").glob("*.md"))
+    assert len(notes) == 9
+    assert all("tier: no-data" in n.read_text() for n in notes)
+    err = capsys.readouterr().err
+    assert "No insights: archive without metrics" in err
+    assert "tagging disabled" in err
+    assert "notes written" in err
+
+
+def test_build_finds_newest_export_and_tagging_survives_ollama(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data" / "ig").mkdir(parents=True)
+    (tmp_path / "instagram-old.zip").write_bytes(b"not a zip")
+    os.utime(tmp_path / "instagram-old.zip", (0, 0))
+    shutil.copy(FIXTURES / "instagram-export.zip", tmp_path / "data" / "ig" / "instagram-new.zip")
+    (tmp_path / "config").mkdir()
+    shutil.copy(FIXTURES / "taxonomy.json", tmp_path / "config" / "taxonomy.json")
+    monkeypatch.setattr(ollama, "OLLAMA_HOST", dead_host())
+    cli.main(["build", "--out", "out"])
+    assert len(list((tmp_path / "out" / "posts").glob("*.md"))) == 9
+    assert "Tagging disabled: can't reach" in capsys.readouterr().err
+
+
+def test_build_no_export_anywhere(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="No Instagram export given"):
+        cli.main(["build"])
+
+
+def test_rebuild_replaces_only_generated_files(tmp_path, monkeypatch):
+    cfg = edit_config(tmp_path, run="no_tags")
+    cli.main(["build", "--config", str(cfg)])
+    vault = tmp_path / "vault"
+    mine = vault / "posts" / "my own note.md"
+    mine.write_text("hands off")
+    stale = vault / "posts" / "2020-01-01-gone.md"
+    stale.write_text("generated by an older build")
+    manifest = vault / ".creatorvault-manifest.json"
+    manifest.write_text(json.dumps([*json.loads(manifest.read_text()), "posts/2020-01-01-gone.md"]))
+
+    cli.main(["build", "--config", str(cfg)])
+    assert mine.read_text() == "hands off"
+    assert not stale.exists()
+    assert not list(tmp_path.glob("vault-*"))
+
+
+def test_timestamped_out(tmp_path):
+    cli.main(["build", "--config", str(edit_config(tmp_path, advanced__timestamped_out=True))])
+    (run,) = tmp_path.glob("vault-*")
+    assert (run / "Post Archive.md").exists()
 
 
 def test_shop_catalog_dispatch(capsys):

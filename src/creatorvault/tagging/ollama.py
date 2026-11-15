@@ -63,6 +63,20 @@ def ollama_chat(model: str, system: str, user: str, schema: dict[str, Any] | Non
     return data["message"]["content"]
 
 
+def check_model(model: str) -> str:
+    """Raises SystemExit when Ollama is unreachable or the model isn't pulled."""
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_HOST}/api/tags", timeout=5) as resp:
+            models = {m["name"] for m in json.loads(resp.read()).get("models", [])}
+    except OSError as exc:
+        raise SystemExit(f"can't reach {OLLAMA_HOST} ({exc}): run `ollama serve`") from None
+    if model.endswith("-cloud"):
+        return f"reachable; cloud model {model} (needs `ollama signin`)"
+    if model not in models and f"{model}:latest" not in models:
+        raise SystemExit(f"model {model} not pulled: run `ollama pull {model}`")
+    return f"reachable, {model} pulled"
+
+
 def parse_answer(text: str) -> list[Any]:
     """Model reply -> list of per-caption items ({"posts": [...]} or a bare list)."""
     text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import re
 import shutil
 import unicodedata
@@ -35,17 +36,36 @@ def yaml_quote(value: Any) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def write_notes(posts: list[Post], out_dir: Path, attachments_name: str, only_top: bool) -> int:
+MANIFEST = ".creatorvault-manifest.json"
+
+
+def sync_manifest(out_dir: Path, written: list[Path]) -> None:
+    """Deletes files a previous build generated and this one didn't, then
+    records this build's files. Anything else in the vault (your own notes)
+    is never touched."""
+    manifest = out_dir / MANIFEST
+    now = sorted({p.relative_to(out_dir).as_posix() for p in written})
+    if manifest.exists():
+        for rel in set(json.loads(manifest.read_text(encoding="utf-8"))) - set(now):
+            (out_dir / rel).unlink(missing_ok=True)
+    manifest.write_text(json.dumps(now, indent=1) + "\n", encoding="utf-8")
+
+
+def copy_media(src: Path, dest: Path) -> None:
+    """Copies unless an identical-looking file is already there."""
+    if not dest.exists() or dest.stat().st_size != src.stat().st_size:
+        shutil.copy2(src, dest)
+
+
+def write_notes(posts: list[Post], out_dir: Path, attachments_name: str) -> list[Path]:
+    """Writes one note per post; returns every file written (notes + media)."""
     notes_dir = out_dir / "posts"
     att_dir = out_dir / attachments_name
     notes_dir.mkdir(parents=True, exist_ok=True)
     att_dir.mkdir(parents=True, exist_ok=True)
 
-    written = 0
+    written: list[Path] = []
     for post in posts:
-        if only_top and post.tier not in ("top", None):
-            continue
-
         date_str = post.timestamp.strftime("%Y-%m-%d")
         stem = f"{date_str}-{slugify(post.title)}"
         note_path = notes_dir / f"{stem}.md"
@@ -56,8 +76,8 @@ def write_notes(posts: list[Post], out_dir: Path, attachments_name: str, only_to
             ext = src.suffix.lower()
             dest_name = f"{stem}-{i:02d}{ext}" if len(post.media) > 1 else f"{stem}{ext}"
             dest = att_dir / dest_name
-            if not dest.exists():
-                shutil.copy2(src, dest)
+            copy_media(src, dest)
+            written.append(dest)
             if ext in IMAGE_EXT:
                 embeds.append(f"![[{dest_name}]]")
             else:
@@ -103,12 +123,12 @@ def write_notes(posts: list[Post], out_dir: Path, attachments_name: str, only_to
             body += [f"[Open on Instagram]({post.permalink})", ""]
 
         note_path.write_text("\n".join(fm + body), encoding="utf-8")
-        written += 1
+        written.append(note_path)
 
     return written
 
 
-def write_index(posts: list[Post], out_dir: Path, taxonomy: dict[str, Any]) -> None:
+def write_index(posts: list[Post], out_dir: Path, taxonomy: dict[str, Any]) -> Path:
     """Creates an index note with ready-to-use Dataview queries."""
     axes = axis_names(taxonomy)
     primary = axes[0] if axes else "program"
@@ -177,16 +197,22 @@ def write_index(posts: list[Post], out_dir: Path, taxonomy: dict[str, Any]) -> N
         vals = ", ".join(f"`#{axis}/{v}`" for v in axis_values(taxonomy[axis]))
         lines.append(f"- **{axis}**: {vals}")
     lines.append("")
-    (out_dir / "Post Archive.md").write_text("\n".join(lines), encoding="utf-8")
+    path = out_dir / "Post Archive.md"
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return path
 
 
-def write_review(review: list[dict[str, Any]], out_dir: Path) -> None:
+def write_review(
+    review: list[dict[str, Any]], out_dir: Path, name: str = "review.csv"
+) -> list[Path]:
+    """Writes the CSV when there are rows; returns the files written."""
     if not review:
-        return
-    path = out_dir / "review.csv"
+        return []
+    path = out_dir / name
     fields = sorted({k for r in review for k in r})
     with open(path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         w.writerows(review)
     log(f"[!] {len(review)} row(s) to review by hand: {path}")
+    return [path]

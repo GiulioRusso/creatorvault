@@ -58,7 +58,7 @@ ollama serve                      # keep running in another terminal
 ollama pull llama3.2:3b           # default model, small and fast
 ```
 
-`creatorvault doctor` prints a pass/fail table and exits non-zero on any failure. It checks that the export ZIP is readable and contains the posts JSON, that every insights file has a recognisable publish-time column, that the timezone is valid, that the taxonomy is valid, and (when tagging is enabled) that Ollama is reachable and the model is pulled.
+`creatorvault doctor` prints a PASS/WARN/FAIL table and exits non-zero only on a FAIL. It checks that the export ZIP is readable and contains the posts JSON, that every insights file has a recognisable publish-time column, that the timezone is valid, that the taxonomy is valid, and (when tagging is enabled) that Ollama is reachable and the model is pulled. Missing insights, a missing taxonomy or an unreachable Ollama are only WARNs: the build still runs, without metrics or tags.
 
 ## Getting your data
 
@@ -141,19 +141,19 @@ flowchart LR
 | Command | Does |
 |---|---|
 | `creatorvault init [--dir config]` | Copies `config.yaml` and `taxonomy.json` templates. Refuses to overwrite. |
-| `creatorvault doctor [--config PATH]` | Checks config, export, insights, timezone, taxonomy and Ollama. |
-| `creatorvault build [--config PATH]` | Builds the vault. Default config: `config/config.yaml`. |
+| `creatorvault doctor [EXPORT] [--config PATH] [--out DIR]` | Checks config, export, insights, timezone, taxonomy and Ollama. |
+| `creatorvault build [EXPORT] [--config PATH] [--out DIR]` | Builds the vault. Config is optional (default `config/config.yaml` if it exists). Without `EXPORT` and `paths.ig_export`, the newest `instagram-*.zip` in `./data/` or `./` is used. |
 | `creatorvault shop-catalog URL [...]` | See [Other tools](#other-tools). |
 
 ### `paths`
 
 | Key | Default | Meaning |
 |---|---|---|
-| `ig_export` | **required** | Instagram export: a `.zip` as downloaded, or an extracted folder. |
-| `insights_dir` | **required** | Folder with the insights files (`.csv`, `.tsv`, `.xlsx`, `.xlsm`). |
-| `out` | **required** | Output base name. Each run writes a new `<out>-YYYYMMDD-HHMMSS/` vault. |
+| `ig_export` | `EXPORT` argument, else newest `instagram-*.zip` in `./data/` or `./` | Instagram export: a `.zip` as downloaded, or an extracted folder. |
+| `insights_dir` | `data/insights` | Folder with the insights files (`.csv`, `.tsv`, `.xlsx`, `.xlsm`). Missing or empty = archive without metrics. |
+| `out` | `vault` | Output vault (`--out` overrides it). |
 | `cache` | `<out>/.ig_archive_cache` | Extracted export and tag cache, reused across runs. |
-| `taxonomy` | `config/taxonomy.json` | Taxonomy used for tagging. |
+| `taxonomy` | `config/taxonomy.json` | Taxonomy used for tagging. Missing = no tags. |
 
 ### `tiers`
 
@@ -173,7 +173,8 @@ flowchart LR
 
 | Key | Default | Meaning |
 |---|---|---|
-| `only_top` | `true` | Only write notes for `top` posts. Note that years without insights have no `top` posts. |
+| `only_top` | `false` | Only write notes for `top` posts. Note that years without insights have no `top` posts. |
+| `timestamped_out` | `false` | `false` writes into `out` every time, replacing only the files the previous build generated (tracked in `.creatorvault-manifest.json`): notes you add to the vault are never touched. `true` writes a new `<out>-YYYYMMDD-HHMMSS/` folder per run. |
 | `tolerance_minutes` | `90` | Max time difference for the join. |
 | `insights_tz` | `America/Los_Angeles` | Timezone of the insights publish times (see the warning above). |
 | `tier_scope` | `year` | `year` ranks within each calendar year; `global` ranks all posts together. |
@@ -207,7 +208,7 @@ After changing values, delete `tags_cache.json` to re-tag already-tagged posts.
 ## Output
 
 ```
-obsidian-output-20260812-153000/   ← one fresh folder per run
+vault/                             ← rebuilt in place (see timestamped_out)
 ├── Post Archive.md                ← Dataview index, start here
 ├── posts/2024-01-26-first-line-of-the-caption.md
 ├── attachments/2024-01-26-first-line-of-the-caption.jpg

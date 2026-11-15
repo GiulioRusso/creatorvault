@@ -26,15 +26,32 @@ DEFAULT_BATCH_SIZE = 15  # captions sent per Ollama call
 DEFAULT_TOLERANCE_MINUTES = 90  # tolerance for the export<->insights join
 DEFAULT_INSIGHTS_TZ = "America/Los_Angeles"  # Meta Business Suite exports in Pacific Time
 DEFAULT_TIER_SCOPE = "year"  # performance tiers computed year by year
-DEFAULT_ONLY_TOP = True  # only write notes for posts in the top tier
+DEFAULT_ONLY_TOP = False  # true = only write notes for posts in the top tier
 DEFAULT_ATTACHMENTS_DIRNAME = "attachments"
+DEFAULT_INSIGHTS_DIR = Path("data/insights")
+DEFAULT_OUT = Path("vault")
+DEFAULT_TAXONOMY = Path("config/taxonomy.json")
 
 
-def load_config(path: Path) -> dict[str, Any]:
-    """Loads config/config.yaml. All script options live here."""
+def load_config(path: Path, required: bool = True) -> dict[str, Any]:
+    """Loads config/config.yaml. A missing optional config means all defaults."""
     if not path.exists():
-        raise SystemExit(f"[!] Config not found: {path}")
+        if required:
+            raise SystemExit(f"[!] Config not found: {path}")
+        return {}
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def find_latest_export(data: Path = Path("data"), here: Path = Path(".")) -> Path:
+    """The most recently modified instagram-*.zip under ./data/ (any depth) or ./."""
+    found = [*data.rglob("instagram-*.zip")] if data.is_dir() else []
+    found += here.glob("instagram-*.zip")
+    if not found:
+        raise SystemExit(
+            "[!] No Instagram export given and no instagram-*.zip found in ./data/ or ./.\n"
+            "    Run `creatorvault build path/to/export.zip`."
+        )
+    return max(found, key=lambda p: p.stat().st_mtime)
 
 
 @dataclass
@@ -56,29 +73,32 @@ class Settings:
     tier_scope: str
     only_top: bool
     attachments_dirname: str
+    timestamped_out: bool
 
 
-def resolve(cfg: dict[str, Any], cfg_path: Path) -> Settings:
-    paths = cfg.get("paths", {})
-    tiers_cfg = cfg.get("tiers", {})
-    tagging_cfg = cfg.get("tagging", {})
-    advanced_cfg = cfg.get("advanced", {})
+def resolve(cfg: dict[str, Any], export: Path | None = None, out: Path | None = None) -> Settings:
+    """config.yaml (possibly empty) + CLI overrides -> Settings.
 
-    try:
-        ig_export = Path(paths["ig_export"])
-        insights_dir = Path(paths["insights_dir"])
-        out_base = Path(paths["out"])
-    except KeyError as exc:
-        raise SystemExit(f"[!] Missing 'paths.{exc.args[0]}' in {cfg_path}.")
+    Every path is optional: the export falls back to the newest
+    instagram-*.zip in ./data/ or ./, the rest to the DEFAULT_* values.
+    """
+    paths = cfg.get("paths") or {}
+    tiers_cfg = cfg.get("tiers") or {}
+    tagging_cfg = cfg.get("tagging") or {}
+    advanced_cfg = cfg.get("advanced") or {}
+
+    if export is None:
+        export = Path(paths["ig_export"]) if paths.get("ig_export") else find_latest_export()
+    out_base = out or Path(paths.get("out") or DEFAULT_OUT)
 
     return Settings(
-        ig_export=ig_export,
-        insights_dir=insights_dir,
+        ig_export=export,
+        insights_dir=Path(paths.get("insights_dir") or DEFAULT_INSIGHTS_DIR),
         out_base=out_base,
         # Cache is keyed off the *base* out path (not the timestamped run
         # folder), so the extracted export and the tag cache survive across runs.
         cache_dir=Path(paths.get("cache", out_base / ".ig_archive_cache")),
-        taxonomy_path=Path(paths.get("taxonomy", "./config/taxonomy.json")),
+        taxonomy_path=Path(paths.get("taxonomy") or DEFAULT_TAXONOMY),
         tag_model=tagging_cfg.get("model", DEFAULT_MODEL),
         tag_enabled=bool(tagging_cfg.get("enabled", True)),
         batch_size=int(advanced_cfg.get("batch_size", DEFAULT_BATCH_SIZE)),
@@ -89,6 +109,7 @@ def resolve(cfg: dict[str, Any], cfg_path: Path) -> Settings:
         tier_scope=advanced_cfg.get("tier_scope", DEFAULT_TIER_SCOPE),
         only_top=bool(advanced_cfg.get("only_top", DEFAULT_ONLY_TOP)),
         attachments_dirname=advanced_cfg.get("attachments_dirname", DEFAULT_ATTACHMENTS_DIRNAME),
+        timestamped_out=bool(advanced_cfg.get("timestamped_out", False)),
     )
 
 

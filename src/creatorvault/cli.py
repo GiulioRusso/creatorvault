@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import urllib.request
 import zipfile
 from collections.abc import Callable
 from datetime import datetime
@@ -30,7 +29,7 @@ from creatorvault.sources.instagram import (
 from creatorvault.tagging import ollama
 from creatorvault.tagging.taxonomy import axis_names, axis_values
 from creatorvault.tiers import assign_tiers
-from creatorvault.writers.obsidian import write_index, write_notes, write_review
+from creatorvault.writers.obsidian import sync_manifest, write_index, write_notes, write_review
 
 DEFAULT_CONFIG = Path("config/config.yaml")
 TEMPLATES = {"config.yaml": "config.yaml", "taxonomy.json": "taxonomy.json"}
@@ -62,18 +61,52 @@ def init(dest: Path) -> None:
 # --------------------------------------------------------------------------
 
 
+def load_taxonomy(s: Settings) -> dict:
+    """Missing taxonomy = no tagging (warning). A broken one is a hard error."""
+    if not s.taxonomy_path.exists():
+        return {}
+    try:
+        return json.loads(s.taxonomy_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"[!] Invalid taxonomy JSON in {s.taxonomy_path} ({exc})") from None
+
+
+def tag(posts: list, taxonomy: dict, s: Settings) -> None:
+    """Tags in place. Ollama down or model missing = warning, never an error."""
+    if not s.tag_enabled:
+        log("[i] Tagging disabled by config: no semantic tags.")
+        return
+    if not taxonomy:
+        log(f"[!] No taxonomy at {s.taxonomy_path}: tagging disabled (`creatorvault init`).")
+        return
+    try:
+        ollama.check_model(s.tag_model)
+        ollama.tag_posts(
+            posts, taxonomy, s.tag_model, s.batch_size, s.cache_dir / "tags_cache.json"
+        )
+    except SystemExit as exc:
+        log(f"[!] Tagging disabled: {str(exc).removeprefix('[!] ')}")
+
+
+def print_summary(rows: list[tuple[str, int]]) -> None:
+    width = max(len(label) for label, _ in rows)
+    log("")
+    for label, value in rows:
+        log(f"  {label:<{width}}  {value:>6}")
+
+
 def build(s: Settings) -> None:
     if not s.ig_export.exists():
         raise SystemExit(f"[!] Instagram export not found: {s.ig_export}")
-    if not s.taxonomy_path.exists():
-        raise SystemExit(f"[!] Taxonomy not found: {s.taxonomy_path}")
     insight_files = discover_insight_files(s.insights_dir)
     tz = load_timezone(s.insights_tz_name)
+    taxonomy = load_taxonomy(s)
 
-    # Each run gets its own timestamped output folder so a rerun never
-    # overwrites a previous archive.
-    run_stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_dir = s.out_base.parent / f"{s.out_base.name}-{run_stamp}"
+    out_dir = s.out_base
+    if s.timestamped_out:
+        # Each run gets its own folder, so a rerun never touches a previous archive.
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out_dir = s.out_base.parent / f"{s.out_base.name}-{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
     workdir = s.cache_dir
     workdir.mkdir(parents=True, exist_ok=True)
@@ -83,36 +116,51 @@ def build(s: Settings) -> None:
     posts = parse_ig_export(root)
     if not posts:
         raise SystemExit("[!] No posts found in the export.")
+    n_read = len(posts)
 
     # 2. Insights + join
+    if not insight_files:
+        log("[i] No insights: archive without metrics.")
     insights = parse_insights(insight_files, tz)
     review = join_posts(posts, insights, s.tolerance_minutes)
     assign_tiers(posts, s.tier_metric, s.tier_top_pct, s.tier_scope)
+    if not insight_files:
+        for p in posts:
+            p.tier = "no-data"
 
     if s.only_top:
         posts = [p for p in posts if p.tier in ("top", None)]
         log(f"[i] only_top: {len(posts)} post(s) kept.")
 
     # 3. Tags
-    taxonomy = json.loads(s.taxonomy_path.read_text(encoding="utf-8"))
-    if not s.tag_enabled:
-        log("[i] Tagging disabled by config: no semantic tags.")
-    else:
-        ollama.tag_posts(posts, taxonomy, s.tag_model, s.batch_size, workdir / "tags_cache.json")
+    tag(posts, taxonomy, s)
 
     # 4. Notes
-    n = write_notes(posts, out_dir, s.attachments_dirname, s.only_top)
-    write_index(posts, out_dir, taxonomy)
-    write_review(review, out_dir)
+    written = write_notes(posts, out_dir, s.attachments_dirname)
+    written.append(write_index(posts, out_dir, taxonomy))
+    written += write_review(review, out_dir)
+    sync_manifest(out_dir, written)
 
-    log(f"\n[OK] {n} note(s) written in {out_dir / 'posts'}")
-    log(f"     Attachments in {out_dir / s.attachments_dirname}")
-    log(f"     Open '{out_dir}' as a vault in Obsidian and start from 'Post Archive.md'.")
+    print_summary(
+        [
+            ("posts read", n_read),
+            ("unique contents", n_read),
+            ("duplicate groups", 0),
+            ("drafts", 0),
+            ("notes written", len(posts)),
+            ("rows to review", len(review)),
+        ]
+    )
+    log(f"\n[OK] Vault in {out_dir}: open it in Obsidian and start from 'Post Archive.md'.")
 
 
 # --------------------------------------------------------------------------
 # doctor
 # --------------------------------------------------------------------------
+
+
+class Warn(Exception):
+    """A doctor check that found something degraded but not blocking."""
 
 
 def check_export(s: Settings) -> str:
@@ -136,6 +184,8 @@ def check_export(s: Settings) -> str:
 
 def check_insights(s: Settings) -> str:
     paths = discover_insight_files(s.insights_dir)
+    if not paths:
+        raise Warn(f"no insights in {s.insights_dir}: archive without metrics")
     for path in paths:
         header, _rows = load_table(path)
         if "publish_time" not in map_columns(header):
@@ -150,11 +200,8 @@ def check_timezone(s: Settings) -> str:
 
 def check_taxonomy(s: Settings) -> str:
     if not s.taxonomy_path.exists():
-        raise SystemExit(f"not found: {s.taxonomy_path}")
-    try:
-        taxonomy = json.loads(s.taxonomy_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"invalid JSON ({exc})") from None
+        raise Warn(f"not found: {s.taxonomy_path}: tagging disabled")
+    taxonomy = load_taxonomy(s)
     axes = axis_names(taxonomy)
     if not axes:
         raise SystemExit("no axes (keys not starting with _)")
@@ -168,15 +215,9 @@ def check_ollama(s: Settings) -> str:
     if not s.tag_enabled:
         return "tagging disabled, skipped"
     try:
-        with urllib.request.urlopen(f"{ollama.OLLAMA_HOST}/api/tags", timeout=5) as resp:
-            models = {m["name"] for m in json.loads(resp.read()).get("models", [])}
-    except OSError as exc:
-        raise SystemExit(f"can't reach {ollama.OLLAMA_HOST} ({exc}): run `ollama serve`") from None
-    if s.tag_model.endswith("-cloud"):
-        return f"reachable; cloud model {s.tag_model} (needs `ollama signin`)"
-    if s.tag_model not in models and f"{s.tag_model}:latest" not in models:
-        raise SystemExit(f"model {s.tag_model} not pulled: run `ollama pull {s.tag_model}`")
-    return f"reachable, {s.tag_model} pulled"
+        return ollama.check_model(s.tag_model)
+    except SystemExit as exc:
+        raise Warn(f"{exc}; tagging will be skipped") from None
 
 
 CHECKS: list[tuple[str, Callable[[Settings], str]]] = [
@@ -188,24 +229,34 @@ CHECKS: list[tuple[str, Callable[[Settings], str]]] = [
 ]
 
 
-def doctor(cfg_path: Path) -> bool:
-    """Prints a pass/fail table; returns True when every check passes."""
-    results: list[tuple[str, bool, str]] = []
+def settings_for(args: argparse.Namespace) -> Settings:
+    """--config given = must exist; otherwise ./config/config.yaml if present."""
+    cfg_path = args.config or DEFAULT_CONFIG
+    cfg = load_config(cfg_path, required=args.config is not None)
+    return resolve(cfg, getattr(args, "export", None), getattr(args, "out", None))
+
+
+def doctor(args: argparse.Namespace) -> bool:
+    """Prints a PASS/WARN/FAIL table; returns False only when something FAILs."""
+    results: list[tuple[str, str, str]] = []
     try:
-        s = resolve(load_config(cfg_path), cfg_path)
-        results.append(("config", True, str(cfg_path)))
+        s = settings_for(args)
+        cfg_path = args.config or DEFAULT_CONFIG
+        results.append(("config", "PASS", str(cfg_path) if cfg_path.exists() else "defaults"))
     except SystemExit as exc:
-        results.append(("config", False, str(exc)))
+        results.append(("config", "FAIL", str(exc)))
     else:
         for name, check in CHECKS:
             try:
-                results.append((name, True, check(s)))
+                results.append((name, "PASS", check(s)))
+            except Warn as exc:
+                results.append((name, "WARN", str(exc)))
             except SystemExit as exc:
-                results.append((name, False, str(exc)))
-    for name, ok, detail in results:
+                results.append((name, "FAIL", str(exc)))
+    for name, status, detail in results:
         detail = detail.removeprefix("[!] ").replace("\n", " ")
-        print(f"{'PASS' if ok else 'FAIL'}  {name:<9} {detail}")
-    return all(ok for _, ok, _ in results)
+        print(f"{status}  {name:<9} {detail}")
+    return all(status != "FAIL" for _, status, _ in results)
 
 
 # --------------------------------------------------------------------------
@@ -240,10 +291,19 @@ def main(argv: list[str] | None = None) -> None:
     ):
         p = sub.add_parser(name, help=help_)
         p.add_argument(
+            "export",
+            nargs="?",
+            type=Path,
+            help="Instagram export .zip or folder (default: paths.ig_export, "
+            "else the newest instagram-*.zip in ./data/ or ./)",
+        )
+        p.add_argument(
             "--config",
             type=Path,
-            default=DEFAULT_CONFIG,
-            help="YAML config file (default: ./config/config.yaml)",
+            help="YAML config file (default: ./config/config.yaml if it exists)",
+        )
+        p.add_argument(
+            "--out", type=Path, help="output vault folder (default: paths.out or vault/)"
         )
     sub.add_parser("shop-catalog", help="shop listing page -> Meta catalog CSV (see --help)")
     args = ap.parse_args(argv)
@@ -251,7 +311,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "init":
         init(args.dir)
     elif args.command == "doctor":
-        if not doctor(args.config):
+        if not doctor(args):
             raise SystemExit(1)
     else:
-        build(resolve(load_config(args.config), args.config))
+        build(settings_for(args))

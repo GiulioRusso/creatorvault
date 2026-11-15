@@ -47,16 +47,16 @@ def write_config(run: str, tmp: Path) -> Path:
 
 
 def run_dir(tmp: Path) -> Path:
-    """The timestamped output folder of the single run made in tmp."""
-    (found,) = tmp.glob("vault-*")
-    return found
+    """The output vault of the run made in tmp."""
+    return tmp / "vault"
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
+    """Every generated file, minus the cache (extracted export, tag cache)."""
     return {
         p.relative_to(root).as_posix(): p.read_bytes()
         for p in sorted(root.rglob("*"))
-        if p.is_file()
+        if p.is_file() and ".ig_archive_cache" not in p.parts
     }
 
 

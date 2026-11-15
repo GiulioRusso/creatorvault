@@ -136,13 +136,11 @@ INSIGHTS_EXT = {".csv", ".tsv", ".txt", ".xlsx", ".xlsm"}
 
 
 def discover_insight_files(insights_dir: Path) -> list[Path]:
-    """One file per year inside insights_dir, auto-discovered."""
-    if not insights_dir.exists():
-        raise SystemExit(f"[!] Insights folder not found: {insights_dir}")
-    files = sorted(p for p in insights_dir.iterdir() if p.suffix.lower() in INSIGHTS_EXT)
-    if not files:
-        raise SystemExit(f"[!] No insights file (.csv/.tsv/.xlsx) in {insights_dir}.")
-    return files
+    """One file per year inside insights_dir, auto-discovered. Empty if none:
+    insights are optional."""
+    if not insights_dir.is_dir():
+        return []
+    return sorted(p for p in insights_dir.iterdir() if p.suffix.lower() in INSIGHTS_EXT)
 
 
 def parse_insights(paths: list[Path], tz: Any) -> list[dict[str, Any]]:

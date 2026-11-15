@@ -1,27 +1,31 @@
 # creatorvault config. `creatorvault init` copies this template to
 # ./config/config.yaml: fill in your own paths there.
-# Paths are relative to the folder you run creatorvault from (or absolute).
-# Check it with `creatorvault doctor`, then run `creatorvault build`.
+# Everything is optional: `creatorvault build export.zip` works without any
+# config. Paths are relative to the folder you run creatorvault from (or
+# absolute). Check it with `creatorvault doctor`, then run `creatorvault build`.
 
 paths:
   # Instagram export: the ZIP from "Download your information" (or the
   # already-extracted folder). Taken as a whole, exactly as downloaded.
+  # Default: the export passed on the command line, else the newest
+  # instagram-*.zip in ./data/ (any depth) or ./.
   ig_export: data/ig-export/instagram-yourpage-2026-01-01-xxxxxxxx.zip
 
   # Folder with Meta Business Suite insight files: one per year (CSV or
   # XLSX), auto-discovered. Meta caps each export to a short window, so
-  # there's normally one file per year in here.
+  # there's normally one file per year in here. Optional: without it the
+  # archive has no metrics and every tier is "no-data".
   insights_dir: data/insights
 
-  # Output folder (Obsidian vault). Created if missing.
-  out: obsidian-output
+  # Output folder (Obsidian vault). Created if missing. Default: vault
+  out: vault
 
   # Folder where the Instagram export gets extracted and where the tag
   # cache lives. Default: <out>/.ig_archive_cache
   # cache: cache
 
   # Taxonomy used for semantic tagging. Default: config/taxonomy.json
-  # Copy config/taxonomy_schema.json there first (see README).
+  # Missing = tagging disabled (with a warning).
   # taxonomy: config/taxonomy.json
 
 tiers:
@@ -44,7 +48,9 @@ tagging:
   # time out on a batch.
   model: llama3.2:3b
 
-  # false = skip tagging entirely (no Ollama calls, empty tags).
+  # false = skip tagging entirely (no Ollama calls, empty tags). If Ollama
+  # is unreachable or the model isn't pulled, tagging is skipped with a
+  # warning anyway.
   enabled: true
 
 advanced:
@@ -65,9 +71,14 @@ advanced:
   # "global" ranks every post against every other post regardless of year.
   tier_scope: year
 
-  # Only write a note for posts in the "top" tier. false writes a note for
-  # every post regardless of tier.
-  only_top: true
+  # Only write a note for posts in the "top" tier. false (default) writes a
+  # note for every post regardless of tier.
+  only_top: false
+
+  # false (default): always write into `out`, replacing only the files the
+  # previous build generated (your own notes are never touched).
+  # true: every run writes a new <out>-YYYYMMDD-HHMMSS/ folder.
+  timestamped_out: false
 
   # Name of the media subfolder inside the output vault.
   attachments_dirname: attachments
