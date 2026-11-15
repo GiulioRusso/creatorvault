@@ -73,6 +73,14 @@ hashtags:
   #   program/apollo: "#apollo"
   #   program/gemini: "#gemini"
 
+queue:
+  # `creatorvault queue` fills these slots: never-published drafts first,
+  # then top-tier posts not published for min_repost_months.
+  # Tuesday and Friday are left out by default (reel days).
+  days: [mon, wed, thu, sat, sun]
+  time: "19:30"
+  min_repost_months: 12
+
 dedup:
   # Reposts of the same content become one note, with every publication
   # listed. Signals: NASA photo code in the caption, image fingerprint

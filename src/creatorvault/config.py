@@ -11,6 +11,7 @@ import yaml
 
 from creatorvault.dedup import DedupConfig
 from creatorvault.hashtags import HashtagConfig
+from creatorvault.queue import QueueConfig
 
 # Model used for tagging, via Ollama (local or cloud). Free.
 # Local: any tag pulled with `ollama pull <model>`.
@@ -81,6 +82,7 @@ class Settings:
     timestamped_out: bool
     dedup: DedupConfig
     hashtags: HashtagConfig
+    queue: QueueConfig
 
 
 def resolve(cfg: dict[str, Any], export: Path | None = None, out: Path | None = None) -> Settings:
@@ -120,6 +122,7 @@ def resolve(cfg: dict[str, Any], export: Path | None = None, out: Path | None = 
         timestamped_out=bool(advanced_cfg.get("timestamped_out", False)),
         dedup=DedupConfig.from_dict(cfg.get("dedup") or {}),
         hashtags=HashtagConfig.from_dict(cfg.get("hashtags") or {}),
+        queue=QueueConfig.from_dict(cfg.get("queue") or {}),
     )
 
 

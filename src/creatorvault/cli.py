@@ -1,4 +1,4 @@
-"""Command-line entry point: init, doctor, build, shop-catalog."""
+"""Command-line entry point: init, doctor, build, queue, shop-catalog."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import json
 import sys
 import zipfile
 from collections.abc import Callable
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
 
@@ -21,7 +22,8 @@ from creatorvault.insights.meta import (
     parse_insights,
 )
 from creatorvault.join import join_posts
-from creatorvault.models import log
+from creatorvault.models import Content, log
+from creatorvault.queue import parse_days, parse_time, pick, slots, write_queue
 from creatorvault.sources.instagram import (
     POSTS_JSON_CANDIDATES,
     find_posts_json,
@@ -104,28 +106,34 @@ def print_summary(rows: list[tuple[str, int]]) -> None:
         log(f"  {label:<{width}}  {value:>6}")
 
 
-def build(s: Settings) -> None:
+@dataclass
+class Archive:
+    """Everything build and queue need, before anything is written."""
+
+    contents: list[Content]
+    review: list[dict]
+    dedup_review: list[dict]
+    taxonomy: dict
+    n_read: int
+    n_drafts: int
+    n_contents: int
+    n_groups: int
+
+
+def collect(s: Settings) -> Archive:
+    """Export + insights + drafts -> tagged, deduplicated contents."""
     if not s.ig_export.exists():
         raise SystemExit(f"[!] Instagram export not found: {s.ig_export}")
     insight_files = discover_insight_files(s.insights_dir)
     tz = load_timezone(s.insights_tz_name)
     taxonomy = load_taxonomy(s)
-
-    out_dir = s.out_base
-    if s.timestamped_out:
-        # Each run gets its own folder, so a rerun never touches a previous archive.
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        out_dir = s.out_base.parent / f"{s.out_base.name}-{stamp}"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    workdir = s.cache_dir
-    workdir.mkdir(parents=True, exist_ok=True)
+    s.cache_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Instagram export
-    root = prepare_export(s.ig_export, workdir)
+    root = prepare_export(s.ig_export, s.cache_dir)
     posts = parse_ig_export(root)
     if not posts:
         raise SystemExit("[!] No posts found in the export.")
-    n_read = len(posts)
 
     # 2. Insights + join
     if not insight_files:
@@ -151,26 +159,60 @@ def build(s: Settings) -> None:
     tag(contents, taxonomy, s)
     for c in contents:
         c.ready_caption = ready_caption(c.caption, c.tags, s.hashtags)
+    return Archive(
+        contents, review, dedup_review, taxonomy, len(posts), len(drafts), n_contents, n_groups
+    )
 
-    # 5. Notes
-    written = write_notes(contents, out_dir, s.attachments_dirname, s.hashtags.max)
-    written.append(write_index(out_dir, taxonomy))
-    written += write_review(review, out_dir)
-    written += write_review(dedup_review, out_dir, "dedup_review.csv")
-    written += write_review(drafts_report(contents), out_dir, "drafts_report.csv")
+
+def build(s: Settings) -> None:
+    a = collect(s)
+    out_dir = s.out_base
+    if s.timestamped_out:
+        # Each run gets its own folder, so a rerun never touches a previous archive.
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out_dir = s.out_base.parent / f"{s.out_base.name}-{stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    written = write_notes(a.contents, out_dir, s.attachments_dirname, s.hashtags.max)
+    written.append(write_index(out_dir, a.taxonomy))
+    written += write_review(a.review, out_dir)
+    written += write_review(a.dedup_review, out_dir, "dedup_review.csv")
+    written += write_review(drafts_report(a.contents), out_dir, "drafts_report.csv")
     sync_manifest(out_dir, written)
 
     print_summary(
         [
-            ("posts read", n_read),
-            ("unique contents", n_contents),
-            ("duplicate groups", n_groups),
-            ("drafts", len(drafts)),
-            ("notes written", len(contents)),
-            ("rows to review", len(review) + len(dedup_review)),
+            ("posts read", a.n_read),
+            ("unique contents", a.n_contents),
+            ("duplicate groups", a.n_groups),
+            ("drafts", a.n_drafts),
+            ("notes written", len(a.contents)),
+            ("rows to review", len(a.review) + len(a.dedup_review)),
         ]
     )
     log(f"\n[OK] Vault in {out_dir}: open it in Obsidian and start from 'Post Archive.md'.")
+
+
+# --------------------------------------------------------------------------
+# queue
+# --------------------------------------------------------------------------
+
+
+def queue(s: Settings, args: argparse.Namespace) -> None:
+    days = parse_days(args.days) if args.days else s.queue.days
+    time = parse_time(args.time) if args.time else s.queue.time
+    try:
+        start = date.fromisoformat(args.start) if args.start else date.today() + timedelta(days=1)
+    except ValueError:
+        raise SystemExit(f"[!] --start must be YYYY-MM-DD, got: {args.start}") from None
+
+    a = collect(s)
+    axes = axis_names(a.taxonomy)
+    chosen = pick(
+        a.contents, args.next, start, s.queue.min_repost_months, axes[0] if axes else None
+    )
+    path = write_queue(chosen, slots(start, days, len(chosen)), time, args.queue_out)
+    log(f"\n[OK] {len(chosen)} post(s) queued in {path.parent} (checklist: {path.name}).")
 
 
 # --------------------------------------------------------------------------
@@ -331,6 +373,16 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument(
             "--out", type=Path, help="output vault folder (default: paths.out or vault/)"
         )
+    p_queue = sub.add_parser("queue", help="prepare images + captions for the next posts")
+    p_queue.add_argument("export", nargs="?", type=Path, help="as for build")
+    p_queue.add_argument("--config", type=Path, help="as for build")
+    p_queue.add_argument("--next", type=int, default=10, help="how many posts (default: 10)")
+    p_queue.add_argument("--days", help="e.g. mon,wed,thu,sat,sun (default: queue.days)")
+    p_queue.add_argument("--time", help="HH:MM (default: queue.time)")
+    p_queue.add_argument("--start", help="first date, YYYY-MM-DD (default: tomorrow)")
+    p_queue.add_argument(
+        "--out", dest="queue_out", type=Path, default=Path("queue"), help="default: queue/"
+    )
     sub.add_parser("shop-catalog", help="shop listing page -> Meta catalog CSV (see --help)")
     args = ap.parse_args(argv)
 
@@ -339,5 +391,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "doctor":
         if not doctor(args):
             raise SystemExit(1)
+    elif args.command == "queue":
+        queue(settings_for(args), args)
     else:
         build(settings_for(args))

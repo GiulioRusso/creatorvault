@@ -6,6 +6,9 @@ config/taxonomy.json
 data/
 obsidian-output/
 obsidian-output-*/
+vault/
+vault-*/
+queue/
 /meta_catalog*.csv
 
 # --- Python ---
