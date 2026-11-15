@@ -11,6 +11,7 @@ first_published: 2024-09-15
 last_published: 2024-09-15
 published: [2024-09-15]
 best_engagement: 2080
+hashtags_original_count: 0
 comments: 80
 engagement: 2080
 engagement_rate: 10.4
@@ -28,7 +29,15 @@ tags:
 
 [[2024-09-15-countdown-footage-from-gemini-4.mp4]]
 
-## Caption
+## Ready to post
+
+```text
+Countdown footage from Gemini 4
+.
+#history #space #moon #exploration #science
+```
+
+## Original caption
 
 ```text
 Countdown footage from Gemini 4

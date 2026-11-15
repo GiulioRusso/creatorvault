@@ -53,6 +53,21 @@ tagging:
   # warning anyway.
   enabled: true
 
+hashtags:
+  # Each note gets a "Ready to post" caption: the original text without its
+  # hashtags, a "." line, then at most `max` hashtags. Instagram doesn't
+  # publish scheduled/API posts with more than 5.
+  max: 5
+
+  # fixed: always the `fixed` list. keep_original: the first `max` of the
+  # post's own hashtags. taxonomy: hashtags mapped from the post's tags
+  # (below), topped up with `fixed`.
+  strategy: fixed
+  fixed: ["#history", "#space", "#moon", "#exploration", "#science"]
+  # taxonomy:
+  #   program/apollo: "#apollo"
+  #   program/gemini: "#gemini"
+
 dedup:
   # Reposts of the same content become one note, with every publication
   # listed. Signals: NASA photo code in the caption, image fingerprint

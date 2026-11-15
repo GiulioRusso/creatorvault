@@ -9,6 +9,7 @@ times_published: 1
 first_published: 2023-05-05
 last_published: 2023-05-05
 published: [2023-05-05]
+hashtags_original_count: 0
 tags:
   - post
   - program/apollo
@@ -20,7 +21,15 @@ tags:
 
 ![[2023-05-05-voyager-1-golden-record.jpg]]
 
-## Caption
+## Ready to post
+
+```text
+Voyager 1 golden record
+.
+#history #space #moon #exploration #science
+```
+
+## Original caption
 
 ```text
 Voyager 1 golden record

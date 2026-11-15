@@ -13,6 +13,7 @@ from pathlib import Path
 
 from creatorvault.config import Settings, load_config, load_timezone, resolve
 from creatorvault.dedup import dedup
+from creatorvault.hashtags import ready_caption
 from creatorvault.insights.meta import (
     discover_insight_files,
     load_table,
@@ -137,11 +138,13 @@ def build(s: Settings) -> None:
         contents = [c for c in contents if c.best_tier in ("top", None)]
         log(f"[i] only_top: {len(contents)} content(s) kept.")
 
-    # 3. Tags
+    # 3. Tags, then the ready-to-post caption (taxonomy hashtags need the tags)
     tag(contents, taxonomy, s)
+    for c in contents:
+        c.ready_caption = ready_caption(c.caption, c.tags, s.hashtags)
 
     # 4. Notes
-    written = write_notes(contents, out_dir, s.attachments_dirname)
+    written = write_notes(contents, out_dir, s.attachments_dirname, s.hashtags.max)
     written.append(write_index(out_dir, taxonomy))
     written += write_review(review, out_dir)
     written += write_review(dedup_review, out_dir, "dedup_review.csv")

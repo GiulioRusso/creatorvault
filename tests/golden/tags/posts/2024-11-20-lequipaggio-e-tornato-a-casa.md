@@ -11,6 +11,7 @@ first_published: 2024-11-20
 last_published: 2024-11-20
 published: [2024-11-20]
 best_engagement: 167
+hashtags_original_count: 0
 comments: 5
 engagement: 167
 engagement_rate: 3.34
@@ -30,7 +31,16 @@ tags:
 
 ![[2024-11-20-lequipaggio-e-tornato-a-casa.jpg]]
 
-## Caption
+## Ready to post
+
+```text
+L'equipaggio è tornato a casa 🚀
+Rientro dell'Apollo 13.
+.
+#history #space #moon #exploration #science
+```
+
+## Original caption
 
 ```text
 L'equipaggio è tornato a casa 🚀

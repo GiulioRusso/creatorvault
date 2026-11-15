@@ -11,6 +11,7 @@ first_published: 2024-07-04
 last_published: 2024-07-04
 published: [2024-07-04]
 best_engagement: 475
+hashtags_original_count: 1
 comments: 10
 engagement: 475
 engagement_rate: 5.94
@@ -32,7 +33,16 @@ tags:
 ![[2024-07-04-saturn-v-on-the-pad-02.jpg]]
 ![[2024-07-04-saturn-v-on-the-pad-03.jpg]]
 
-## Caption
+## Ready to post
+
+```text
+Saturn V on the pad
+Three frames from the rollout.
+.
+#history #space #moon #exploration #science
+```
+
+## Original caption
 
 ```text
 Saturn V on the pad

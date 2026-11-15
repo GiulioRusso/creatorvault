@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from creatorvault.hashtags import split_caption
+
 
 def log(msg: str) -> None:
     print(msg, file=sys.stderr)
@@ -65,6 +67,7 @@ class Content:
     tags: dict[str, list[str]] = field(default_factory=dict)
     photo_ids: list[str] = field(default_factory=list)
     review_note: str | None = None
+    ready_caption: str = ""  # caption_body + at most hashtags.max hashtags
 
     @property
     def published(self) -> list[Publication]:
@@ -125,6 +128,14 @@ class Content:
     def media(self) -> list[Path]:
         latest = self._latest("media")
         return latest.media if latest else []
+
+    @property
+    def caption_body(self) -> str:
+        return split_caption(self.caption)[0]
+
+    @property
+    def hashtags_original(self) -> list[str]:
+        return split_caption(self.caption)[1]
 
     @property
     def title(self) -> str:

@@ -11,6 +11,7 @@ first_published: 2025-02-14
 last_published: 2025-02-14
 published: [2025-02-14]
 best_engagement: 800
+hashtags_original_count: 0
 comments: 30
 engagement: 800
 engagement_rate: 8.89
@@ -27,7 +28,15 @@ tags:
 
 ![[2025-02-14-happy-valentines-from-the-moon.png]]
 
-## Caption
+## Ready to post
+
+```text
+🚀🌕 Happy Valentine's from the Moon
+.
+#history #space #moon #exploration #science
+```
+
+## Original caption
 
 ```text
 🚀🌕 Happy Valentine's from the Moon

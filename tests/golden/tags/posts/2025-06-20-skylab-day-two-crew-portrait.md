@@ -11,6 +11,7 @@ first_published: 2025-06-20
 last_published: 2025-06-20
 published: [2025-06-20]
 best_engagement: 285
+hashtags_original_count: 0
 comments: 9
 engagement: 285
 engagement_rate: 6.33
@@ -29,7 +30,15 @@ tags:
 
 ![[2025-06-20-skylab-day-two-crew-portrait.jpg]]
 
-## Caption
+## Ready to post
+
+```text
+Skylab day two crew portrait
+.
+#history #space #moon #exploration #science
+```
+
+## Original caption
 
 ```text
 Skylab day two crew portrait

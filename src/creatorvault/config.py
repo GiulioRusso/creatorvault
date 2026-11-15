@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 
 from creatorvault.dedup import DedupConfig
+from creatorvault.hashtags import HashtagConfig
 
 # Model used for tagging, via Ollama (local or cloud). Free.
 # Local: any tag pulled with `ollama pull <model>`.
@@ -77,6 +78,7 @@ class Settings:
     attachments_dirname: str
     timestamped_out: bool
     dedup: DedupConfig
+    hashtags: HashtagConfig
 
 
 def resolve(cfg: dict[str, Any], export: Path | None = None, out: Path | None = None) -> Settings:
@@ -114,6 +116,7 @@ def resolve(cfg: dict[str, Any], export: Path | None = None, out: Path | None = 
         attachments_dirname=advanced_cfg.get("attachments_dirname", DEFAULT_ATTACHMENTS_DIRNAME),
         timestamped_out=bool(advanced_cfg.get("timestamped_out", False)),
         dedup=DedupConfig.from_dict(cfg.get("dedup") or {}),
+        hashtags=HashtagConfig.from_dict(cfg.get("hashtags") or {}),
     )
 
 

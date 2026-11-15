@@ -63,7 +63,9 @@ def note_stem(content: Content) -> str:
     return f"{first.timestamp:%Y-%m-%d}-{slugify(first.title)}"
 
 
-def write_notes(contents: list[Content], out_dir: Path, attachments_name: str) -> list[Path]:
+def write_notes(
+    contents: list[Content], out_dir: Path, attachments_name: str, max_hashtags: int = 5
+) -> list[Path]:
     """Writes one note per content; returns every file written (notes + media)."""
     notes_dir = out_dir / "posts"
     att_dir = out_dir / attachments_name
@@ -111,6 +113,8 @@ def write_notes(contents: list[Content], out_dir: Path, attachments_name: str) -
             fm.append(f"photo_ids: [{', '.join(yaml_quote(i) for i in content.photo_ids)}]")
         if content.best_engagement is not None:
             fm.append(f"best_engagement: {int(content.best_engagement)}")
+        n_hashtags = len(content.hashtags_original)
+        fm.append(f"hashtags_original_count: {n_hashtags}")
         for metric, value in sorted(best.metrics.items()):
             if metric == "engagement_rate":
                 fm.append(f"{metric}: {value}")
@@ -125,6 +129,8 @@ def write_notes(contents: list[Content], out_dir: Path, attachments_name: str) -
             all_tags.append(f"tier/{content.best_tier}")
         if len(dates) > 1:
             all_tags.append("repost/yes")
+        if n_hashtags > max_hashtags:
+            all_tags.append("lint/too-many-hashtags")
         fm.append("tags:")
         for t in all_tags:
             fm.append(f"  - {t}")
@@ -137,7 +143,9 @@ def write_notes(contents: list[Content], out_dir: Path, attachments_name: str) -
         # the taxonomy), and this way it's copyable with one click when you
         # want to repost.
         caption = content.caption.strip() or "(no caption)"
-        body += ["", "## Caption", "", "```text", caption, "```", ""]
+        ready = content.ready_caption or "(no caption)"
+        body += ["", "## Ready to post", "", "```text", ready, "```", ""]
+        body += ["## Original caption", "", "```text", caption, "```", ""]
         for note in (content.match_note, content.review_note):
             if note:
                 body += ["> [!warning] Needs review", f"> {note}", ""]

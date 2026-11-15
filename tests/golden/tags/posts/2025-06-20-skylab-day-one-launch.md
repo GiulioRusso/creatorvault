@@ -9,6 +9,7 @@ times_published: 1
 first_published: 2025-06-20
 last_published: 2025-06-20
 published: [2025-06-20]
+hashtags_original_count: 0
 tags:
   - post
   - program/apollo
@@ -20,7 +21,15 @@ tags:
 
 ![[2025-06-20-skylab-day-one-launch.jpg]]
 
-## Caption
+## Ready to post
+
+```text
+Skylab day one launch
+.
+#history #space #moon #exploration #science
+```
+
+## Original caption
 
 ```text
 Skylab day one launch

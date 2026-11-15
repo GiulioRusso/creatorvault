@@ -11,6 +11,7 @@ first_published: 2024-06-10
 last_published: 2024-06-10
 published: [2024-06-10]
 best_engagement: 1090
+hashtags_original_count: 2
 comments: 40
 engagement: 1090
 engagement_rate: 9.08
@@ -30,7 +31,16 @@ tags:
 
 ![[2024-06-10-apollo-11-lands-on-the-moon.jpg]]
 
-## Caption
+## Ready to post
+
+```text
+Apollo 11 lands on the Moon
+The Eagle has landed.
+.
+#history #space #moon #exploration #science
+```
+
+## Original caption
 
 ```text
 Apollo 11 lands on the Moon
