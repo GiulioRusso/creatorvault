@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from creatorvault.models import Post, log
+from creatorvault.models import Content, Post, log
 from creatorvault.tagging.taxonomy import (
     axis_names,
     axis_values,
@@ -89,7 +89,11 @@ def parse_answer(text: str) -> list[Any]:
 
 
 def tag_posts(
-    posts: list[Post], taxonomy: dict[str, Any], model: str, batch_size: int, cache_path: Path
+    posts: list[Post] | list[Content],
+    taxonomy: dict[str, Any],
+    model: str,
+    batch_size: int,
+    cache_path: Path,
 ) -> None:
     cache: dict[str, dict[str, list[str]]] = {}
     if cache_path.exists():

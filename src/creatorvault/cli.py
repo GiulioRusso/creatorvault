@@ -19,7 +19,7 @@ from creatorvault.insights.meta import (
     parse_insights,
 )
 from creatorvault.join import join_posts
-from creatorvault.models import log
+from creatorvault.models import Content, log
 from creatorvault.sources.instagram import (
     POSTS_JSON_CANDIDATES,
     find_posts_json,
@@ -128,26 +128,28 @@ def build(s: Settings) -> None:
         for p in posts:
             p.tier = "no-data"
 
+    contents = [Content([p]) for p in posts]
+
     if s.only_top:
-        posts = [p for p in posts if p.tier in ("top", None)]
-        log(f"[i] only_top: {len(posts)} post(s) kept.")
+        contents = [c for c in contents if c.best_tier in ("top", None)]
+        log(f"[i] only_top: {len(contents)} content(s) kept.")
 
     # 3. Tags
-    tag(posts, taxonomy, s)
+    tag(contents, taxonomy, s)
 
     # 4. Notes
-    written = write_notes(posts, out_dir, s.attachments_dirname)
-    written.append(write_index(posts, out_dir, taxonomy))
+    written = write_notes(contents, out_dir, s.attachments_dirname)
+    written.append(write_index(out_dir, taxonomy))
     written += write_review(review, out_dir)
     sync_manifest(out_dir, written)
 
     print_summary(
         [
             ("posts read", n_read),
-            ("unique contents", n_read),
+            ("unique contents", len(contents)),
             ("duplicate groups", 0),
             ("drafts", 0),
-            ("notes written", len(posts)),
+            ("notes written", len(contents)),
             ("rows to review", len(review)),
         ]
     )
