@@ -56,7 +56,7 @@ def dead_host():
 def test_doctor_good_config(tmp_path, capsys, monkeypatch):
     ok, out = run_doctor(write_config("tags", tmp_path), capsys, monkeypatch)
     assert ok, out
-    assert out.count("PASS") == 6
+    assert out.count("PASS") == 7
     assert "posts JSON: your_instagram_activity/content/posts_1.json" in out
 
 

@@ -32,6 +32,7 @@ DEFAULT_TIER_SCOPE = "year"  # performance tiers computed year by year
 DEFAULT_ONLY_TOP = False  # true = only write notes for posts in the top tier
 DEFAULT_ATTACHMENTS_DIRNAME = "attachments"
 DEFAULT_INSIGHTS_DIR = Path("data/insights")
+DEFAULT_META_DRAFTS = Path("data/meta-drafts")
 DEFAULT_OUT = Path("vault")
 DEFAULT_TAXONOMY = Path("config/taxonomy.json")
 
@@ -63,6 +64,7 @@ class Settings:
 
     ig_export: Path
     insights_dir: Path
+    meta_drafts: Path
     out_base: Path
     cache_dir: Path
     taxonomy_path: Path
@@ -99,6 +101,7 @@ def resolve(cfg: dict[str, Any], export: Path | None = None, out: Path | None = 
     return Settings(
         ig_export=export,
         insights_dir=Path(paths.get("insights_dir") or DEFAULT_INSIGHTS_DIR),
+        meta_drafts=Path(paths.get("meta_drafts") or DEFAULT_META_DRAFTS),
         out_base=out_base,
         # Cache is keyed off the *base* out path (not the timestamped run
         # folder), so the extracted export and the tag cache survive across runs.

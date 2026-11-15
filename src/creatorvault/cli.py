@@ -28,10 +28,17 @@ from creatorvault.sources.instagram import (
     parse_ig_export,
     prepare_export,
 )
+from creatorvault.sources.meta_drafts import parse_meta_drafts
 from creatorvault.tagging import ollama
 from creatorvault.tagging.taxonomy import axis_names, axis_values
 from creatorvault.tiers import assign_tiers
-from creatorvault.writers.obsidian import sync_manifest, write_index, write_notes, write_review
+from creatorvault.writers.obsidian import (
+    drafts_report,
+    sync_manifest,
+    write_index,
+    write_notes,
+    write_review,
+)
 
 DEFAULT_CONFIG = Path("config/config.yaml")
 TEMPLATES = {"config.yaml": "config.yaml", "taxonomy.json": "taxonomy.json"}
@@ -130,7 +137,9 @@ def build(s: Settings) -> None:
         for p in posts:
             p.tier = "no-data"
 
-    contents, dedup_review = dedup(posts, s.dedup)
+    # 3. Meta drafts (no metrics) + repost detection across everything
+    drafts = parse_meta_drafts(s.meta_drafts)
+    contents, dedup_review = dedup(posts + drafts, s.dedup)
     n_contents = len(contents)
     n_groups = sum(len(c.publications) > 1 for c in contents)
 
@@ -138,16 +147,17 @@ def build(s: Settings) -> None:
         contents = [c for c in contents if c.best_tier in ("top", None)]
         log(f"[i] only_top: {len(contents)} content(s) kept.")
 
-    # 3. Tags, then the ready-to-post caption (taxonomy hashtags need the tags)
+    # 4. Tags, then the ready-to-post caption (taxonomy hashtags need the tags)
     tag(contents, taxonomy, s)
     for c in contents:
         c.ready_caption = ready_caption(c.caption, c.tags, s.hashtags)
 
-    # 4. Notes
+    # 5. Notes
     written = write_notes(contents, out_dir, s.attachments_dirname, s.hashtags.max)
     written.append(write_index(out_dir, taxonomy))
     written += write_review(review, out_dir)
     written += write_review(dedup_review, out_dir, "dedup_review.csv")
+    written += write_review(drafts_report(contents), out_dir, "drafts_report.csv")
     sync_manifest(out_dir, written)
 
     print_summary(
@@ -155,7 +165,7 @@ def build(s: Settings) -> None:
             ("posts read", n_read),
             ("unique contents", n_contents),
             ("duplicate groups", n_groups),
-            ("drafts", 0),
+            ("drafts", len(drafts)),
             ("notes written", len(contents)),
             ("rows to review", len(review) + len(dedup_review)),
         ]
@@ -202,6 +212,12 @@ def check_insights(s: Settings) -> str:
     return f"{len(paths)} file(s), publish-time column found"
 
 
+def check_drafts(s: Settings) -> str:
+    if not (s.meta_drafts / "drafts.json").exists():
+        return f"no {s.meta_drafts / 'drafts.json'} (optional)"
+    return f"{len(parse_meta_drafts(s.meta_drafts))} draft(s)"
+
+
 def check_timezone(s: Settings) -> str:
     load_timezone(s.insights_tz_name)
     return s.insights_tz_name
@@ -232,6 +248,7 @@ def check_ollama(s: Settings) -> str:
 CHECKS: list[tuple[str, Callable[[Settings], str]]] = [
     ("export", check_export),
     ("insights", check_insights),
+    ("drafts", check_drafts),
     ("timezone", check_timezone),
     ("taxonomy", check_taxonomy),
     ("ollama", check_ollama),

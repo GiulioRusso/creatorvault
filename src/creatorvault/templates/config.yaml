@@ -17,6 +17,11 @@ paths:
   # archive has no metrics and every tier is "no-data".
   insights_dir: data/insights
 
+  # Meta Business Suite drafts (optional): a folder with drafts.json and
+  # the draft images (format in the README, "Meta drafts"). Default:
+  # data/meta-drafts, used only if it exists.
+  # meta_drafts: data/meta-drafts
+
   # Output folder (Obsidian vault). Created if missing. Default: vault
   out: vault
 

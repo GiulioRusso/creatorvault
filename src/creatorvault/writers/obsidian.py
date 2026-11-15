@@ -10,6 +10,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
+from creatorvault.dedup import pub_ref
 from creatorvault.models import Content, log
 from creatorvault.tagging.taxonomy import axis_names, axis_values
 
@@ -109,6 +110,9 @@ def write_notes(
             fm.append(f"first_published: {dates[0]}")
             fm.append(f"last_published: {dates[-1]}")
             fm.append(f"published: [{', '.join(dates)}]")
+        if content.drafts:
+            ids = ", ".join(yaml_quote(d.draft_id) for d in content.drafts)
+            fm.append(f"draft_ids: [{ids}]")
         if content.photo_ids:
             fm.append(f"photo_ids: [{', '.join(yaml_quote(i) for i in content.photo_ids)}]")
         if content.best_engagement is not None:
@@ -183,6 +187,32 @@ def publications_table(content: Content) -> list[str]:
         ]
         rows.append("| " + " | ".join(cells) + " |")
     return [*rows, ""]
+
+
+def drafts_report(contents: list[Content]) -> list[dict[str, Any]]:
+    """One row per Meta draft. The newest draft of a content is the one to
+    keep; it duplicates the published post, if any. Older drafts of the same
+    content duplicate the kept one: those are safe to delete in Meta."""
+    rows = []
+    for content in contents:
+        drafts = sorted(content.drafts, key=lambda d: d.timestamp, reverse=True)
+        for k, d in enumerate(drafts):
+            if k:
+                duplicate_of = drafts[0].draft_id
+            elif content.published:
+                duplicate_of = pub_ref(content.published[0])
+            else:
+                duplicate_of = ""
+            rows.append(
+                {
+                    "draft_id": d.draft_id,
+                    "updated": f"{d.timestamp:%Y-%m-%d}",
+                    "content": note_stem(content),
+                    "status": content.status,
+                    "duplicate_of": duplicate_of,
+                }
+            )
+    return rows
 
 
 def write_index(out_dir: Path, taxonomy: dict[str, Any]) -> Path:

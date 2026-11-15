@@ -40,7 +40,10 @@ def write_config(run: str, tmp: Path) -> Path:
         "insights_dir": str(FIXTURES / "insights"),
         "out": str(tmp / "vault"),
         "taxonomy": str(FIXTURES / "taxonomy.json"),
+        # Never pick up the developer's own data/ or config/ by default.
+        "meta_drafts": str(tmp / "no-drafts"),
     }
+    cfg.setdefault("dedup", {})["overrides"] = str(tmp / "no-overrides.yaml")
     path = tmp / "config.yaml"
     path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     return path
