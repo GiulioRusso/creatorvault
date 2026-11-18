@@ -39,6 +39,9 @@ class QueueConfig:
     days: list[str] = field(default_factory=lambda: ["mon", "wed", "thu", "sat", "sun"])
     time: str = "19:30"
     min_repost_months: int = 12
+    next: int = 10  # how many posts
+    start: date | None = None  # first slot; None = tomorrow
+    out: Path = Path("queue")
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> QueueConfig:
@@ -47,7 +50,18 @@ class QueueConfig:
             raise SystemExit(f"[!] Unknown queue option(s): {', '.join(sorted(unknown))}")
         cfg = cls(**raw)
         cfg.days, cfg.time = parse_days(cfg.days), parse_time(cfg.time)
+        if type(cfg.next) is not int or cfg.next < 1:
+            raise SystemExit("[!] queue.next must be a positive integer.")
+        if cfg.start is not None and not isinstance(cfg.start, date):
+            try:
+                cfg.start = date.fromisoformat(str(cfg.start))
+            except ValueError:
+                raise SystemExit(f"[!] queue.start must be YYYY-MM-DD, got: {cfg.start}") from None
+        cfg.out = Path(cfg.out)
         return cfg
+
+    def first_day(self) -> date:
+        return self.start or date.today() + timedelta(days=1)
 
 
 def slots(start: date, days: list[str], n: int) -> list[date]:
@@ -69,8 +83,8 @@ def images(content: Content) -> list[Path]:
 def pick(
     contents: list[Content], n: int, start: date, min_repost_months: int, axis: str | None
 ) -> list[Content]:
-    """Never-published drafts first (oldest first), then top-tier reposts not
-    out for min_repost_months (best first). Avoids two in a row with the same
+    """Never-published drafts first (oldest first), then ranked reposts not
+    out for min_repost_months (best rank first). Avoids two in a row with the same
     value on the primary taxonomy axis when there's a choice."""
     usable = [c for c in contents if images(c)]
     if len(usable) < len(contents):
@@ -82,9 +96,11 @@ def pick(
         (
             c
             for c in usable
-            if c.published and c.best_tier == "top" and c.published[-1].timestamp.date() <= cutoff
+            if c.published
+            and c.top_percent is not None
+            and c.published[-1].timestamp.date() <= cutoff
         ),
-        key=lambda c: -(c.best_engagement or 0),
+        key=lambda c: (c.top_percent, -(c.best_engagement or 0)),
     )
 
     def primary(c: Content) -> str | None:

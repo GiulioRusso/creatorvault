@@ -27,7 +27,7 @@ def test_split_caption():
     assert split_caption("  spaced   out  \n\n\n\nnext\n. ") == ("spaced out\n\nnext", [])
 
 
-@pytest.mark.parametrize("strategy", ["fixed", "keep_original", "taxonomy"])
+@pytest.mark.parametrize("strategy", ["fixed", "keep_original", "taxonomy", "pool"])
 @pytest.mark.parametrize("caption", CAPTIONS)
 def test_never_more_than_max(strategy, caption):
     cfg = HashtagConfig(
@@ -50,19 +50,57 @@ def test_strategies():
 
 @pytest.mark.parametrize(
     ("raw", "message"),
-    [({"strategy": "random"}, "must be one of"), ({"maxx": 3}, "Unknown hashtags option")],
+    [
+        ({"strategy": "random"}, "must be one of"),
+        ({"maxx": 3}, "Unknown hashtags option"),
+        ({"max": 6}, "between 0 and 5"),
+        ({"max": -1}, "between 0 and 5"),
+        ({"max": True}, "between 0 and 5"),
+        ({"pool": "space moon"}, "list of individual"),
+        ({"pool": ["#space #moon"]}, "list of individual"),
+    ],
 )
 def test_bad_config(raw, message):
     with pytest.raises(SystemExit, match=message):
         HashtagConfig.from_dict(raw)
 
 
-def test_note_flags_too_many_hashtags(tmp_path):
+def test_note_keeps_only_prepared_description(tmp_path):
     p = Publication(key="1", timestamp=datetime(2024, 1, 1, tzinfo=UTC), caption=CAPTIONS[1])
     content = Content([p])
     content.ready_caption = ready_caption(content.caption, {}, HashtagConfig())
-    write_notes([content], tmp_path, "attachments", max_hashtags=5)
-    (note,) = (tmp_path / "posts").glob("*.md")
+    write_notes([content], tmp_path, {content.id: "slug"})
+    (note,) = (tmp_path / "archive").glob("*.md")
     text = note.read_text()
-    assert "hashtags_original_count: 10" in text and "  - lint/too-many-hashtags" in text
-    assert "## Ready to post" in text and "## Original caption" in text
+    assert "hashtags_original_count" not in text and "lint/too-many-hashtags" not in text
+    assert "## Description" in text and "## Original caption" not in text
+    assert CAPTIONS[1] not in text and text.count("```text") == 1
+
+
+def test_pool_ignores_original_hashtags_and_varies_stably():
+    cfg = HashtagConfig.from_dict(
+        {
+            "strategy": "pool",
+            "pool": ["space", "nasa", "history", "science", "moon", "astronauts", "exploration"],
+        }
+    )
+    first = ready_caption("Moon landing\n#old #unrelated #original", {}, cfg)
+    assert first == ready_caption("Moon landing\n#other", {}, cfg)
+    assert first == ready_caption("Moon landing", {}, cfg)
+    selected = HASHTAG.findall(first)
+    assert len(selected) == len(set(selected)) == 5
+    assert set(selected) <= set(cfg.pool)
+    variants = {
+        tuple(HASHTAG.findall(ready_caption(f"Space story {i}", {}, cfg))) for i in range(10)
+    }
+    assert len(variants) > 1
+
+
+def test_pool_handles_short_empty_and_duplicate_lists():
+    cfg = HashtagConfig.from_dict({"strategy": "pool", "pool": ["space", "#SPACE", "#nasa"]})
+    assert len(HASHTAG.findall(ready_caption("Hello #old", {}, cfg))) == 2
+    cfg.pool = []
+    assert ready_caption("Hello #old", {}, cfg) == "Hello"
+    cfg.pool = ["space"]
+    cfg.max = 0
+    assert ready_caption("Hello #old", {}, cfg) == "Hello"

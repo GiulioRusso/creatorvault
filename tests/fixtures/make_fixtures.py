@@ -28,6 +28,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
 from openpyxl import Workbook
 
 OUT = Path(__file__).parent / "archive"
@@ -288,7 +289,9 @@ def main() -> None:
     write_zip(OUT / "instagram-export.zip")
     write_csv(OUT / "insights" / "2024.csv")
     write_xlsx(OUT / "insights" / "2025.xlsx")
-    (OUT / "taxonomy.json").write_text(json.dumps(TAXONOMY, indent=2) + "\n", encoding="utf-8")
+    (OUT / "config.yaml").write_text(
+        yaml.safe_dump({"taxonomy": TAXONOMY}, sort_keys=False), encoding="utf-8"
+    )
     print(f"Fixtures written to {OUT}")
 
 

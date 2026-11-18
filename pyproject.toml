@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "creatorvault"
 version = "0.2.0"
-description = "Turn your own social-media exports (Instagram + Meta Business Suite) into a searchable Obsidian archive: one note per content, reposts merged, metrics, tiers, local-LLM tags. No API tokens."
+description = "Local tools for creators: Instagram + Meta exports to an Obsidian vault and an undated content pool (reposts merged, ranked, local-LLM tags), and a shop page to a Meta product catalog. No API tokens."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

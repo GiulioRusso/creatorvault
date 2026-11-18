@@ -1,0 +1,68 @@
+# Example config (shareable). Copy to config/config.yaml and edit.
+#   creatorvault build --config config/config.yaml
+# Relative paths are resolved from the folder where you run the command.
+
+paths:
+  ig_export: data/ig-export/instagram-yourpage.zip   # required
+  # Split download? ig_export also accepts [data/part1.zip, data/part2.zip].
+  insights_dir: data/insights      # Optional; missing = no metrics.
+  meta_drafts: data/meta-drafts    # Optional; missing = no drafts.
+  out: vault                       # Obsidian vault: archive/ (dated), pool/ (undated),
+                                   # Review.md, run.log. Rebuilt in place.
+
+content_types: [posts]             # [posts], [reels], or [posts, reels].
+
+# Which contents get a note. Posts are ranked on `metric` within each year
+# (scope: year) or across the archive (scope: global).
+#   top_percentile: 100 -> every content, drafts and posts without metrics too.
+#   top_percentile: 25  -> only contents in the best 25% (needs insights).
+selection:
+  metric: engagement_rate          # (likes+comments+shares+saves) / reach * 100
+  top_percentile: 100
+  scope: year
+
+# Reposts are merged into one content. Similarity >= caption_same merges;
+# between caption_maybe and caption_same the local model decides (review:),
+# otherwise the two stay separate. Nothing is left for you to review.
+dedup:
+  enabled: true
+  caption_maybe: 0.70             # Lowest allowed: 0.60.
+  caption_same: 0.85
+
+tagging:
+  enabled: true                    # Categorize captions with Ollama.
+  model: llama3.2:3b
+  required: false                  # true = stop if Ollama is unavailable.
+
+review:
+  enabled: true                    # Local model settles ambiguous joins and duplicates.
+  min_confidence: 0.85             # Below this: kept separate / metrics left absent.
+
+# Name a category and list its labels. Lists allow multiple labels;
+# use {values: [...], multi: false} for one label.
+taxonomy:
+  program: [mercury, gemini, apollo, skylab, shuttle, iss, robotic-probes]
+  subject: [astronauts, rockets, launch, moon, earth, engineering, life-aboard]
+
+hashtags:
+  strategy: pool                   # pool, fixed, keep_original or taxonomy.
+  max: 5
+  pool: [space, spacehistory, spaceexploration, vintagespace, spacerace,
+         spaceage, historyofspace, history, science]
+
+
+# `creatorvault queue`: the next posting slots, as images + captions.
+queue:
+  next: 10
+  # start: 2026-12-01              # First slot; default tomorrow.
+  days: [mon, wed, thu, sat, sun]
+  time: "19:30"
+  min_repost_months: 12
+  out: queue
+
+# `creatorvault catalog`: shop listing page -> Meta Commerce Manager CSV.
+# catalog:
+#   shop_url: https://example.com/shop
+#   out: meta_catalog.csv
+#   brand: Your Brand              # Default: last path segment of shop_url.
+#   currency: USD

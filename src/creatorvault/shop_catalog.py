@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 shop_catalog.py
 ---------------
@@ -26,9 +25,7 @@ the rest of the export.
 Usage
 -----
     pip install 'creatorvault[shop]'
-    creatorvault shop-catalog https://app.amazecommerce.com/shop/spaceisvintage
-
-    creatorvault shop-catalog <shop_url> --out catalog.csv --brand "Space Is Vintage"
+    creatorvault catalog --config config/config.yaml   # reads the catalog: section
 
 Note
 ----
@@ -41,7 +38,6 @@ parsing gets fixed accordingly.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import hashlib
 import json
@@ -457,40 +453,3 @@ def write_catalog_csv(rows: list[dict[str, str]], out_path: Path) -> None:
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
-
-
-def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(
-        prog="creatorvault shop-catalog",
-        description="Builds a Meta Commerce Manager catalog CSV from a shop's listing page.",
-    )
-    ap.add_argument("shop_url", help="URL of the shop's product listing page")
-    ap.add_argument(
-        "--out",
-        type=Path,
-        default=Path("meta_catalog.csv"),
-        help="output CSV path (default: ./meta_catalog.csv)",
-    )
-    ap.add_argument(
-        "--brand",
-        default=None,
-        help="brand value used when a product page doesn't declare one "
-        "(default: last path segment of shop_url)",
-    )
-    ap.add_argument(
-        "--currency",
-        default=DEFAULT_CURRENCY,
-        help=f"ISO currency code appended to each price (default: {DEFAULT_CURRENCY})",
-    )
-    args = ap.parse_args(argv)
-
-    rows = build_catalog(args.shop_url, args.currency, args.brand)
-    if not rows:
-        raise SystemExit("[!] No product parsed successfully: nothing written.")
-
-    write_catalog_csv(rows, args.out)
-    log(f"\n[OK] {len(rows)} product(s) written to {args.out}")
-
-
-if __name__ == "__main__":
-    main()

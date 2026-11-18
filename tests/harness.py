@@ -16,19 +16,20 @@ TESTS = Path(__file__).parent
 FIXTURES = TESTS / "fixtures" / "archive"
 GOLDEN = TESTS / "golden"
 MOCK_MODEL = "mock-model:1b"
+TAXONOMY = yaml.safe_load((FIXTURES / "config.yaml").read_text(encoding="utf-8"))["taxonomy"]
 
-# Two golden runs that between them hit both tier scopes, both metrics,
-# only_top on/off and tagging on/off.
+# Two golden runs that between them hit both rank scopes, both metrics,
+# top-only vs everything and tagging on/off.
 RUNS: dict[str, dict] = {
     "no_tags": {
-        "tiers": {"metric": "engagement", "top_percentile": 25},
+        "selection": {"metric": "engagement", "top_percentile": 25, "scope": "year"},
         "tagging": {"enabled": False},
-        "advanced": {"tier_scope": "year", "only_top": True},
+        "advanced": {},
     },
     "tags": {
-        "tiers": {"metric": "engagement_rate", "top_percentile": 50},
+        "selection": {"metric": "engagement_rate", "top_percentile": 100, "scope": "global"},
         "tagging": {"enabled": True, "model": MOCK_MODEL},
-        "advanced": {"tier_scope": "global", "only_top": False, "batch_size": 4},
+        "advanced": {"batch_size": 4},
     },
 }
 
@@ -39,13 +40,13 @@ def write_config(run: str, tmp: Path) -> Path:
         "ig_export": str(FIXTURES / "instagram-export.zip"),
         "insights_dir": str(FIXTURES / "insights"),
         "out": str(tmp / "vault"),
-        "taxonomy": str(FIXTURES / "taxonomy.json"),
         # Never pick up the developer's own data/ or config/ by default.
         "meta_drafts": str(tmp / "no-drafts"),
     }
+    cfg["taxonomy"] = copy.deepcopy(TAXONOMY)
     cfg.setdefault("dedup", {})["overrides"] = str(tmp / "no-overrides.yaml")
     path = tmp / "config.yaml"
-    path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
     return path
 
 
@@ -55,11 +56,11 @@ def run_dir(tmp: Path) -> Path:
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
-    """Every generated file, minus the cache (extracted export, tag cache)."""
+    """Every generated file, minus run.log (timestamps, local paths)."""
     return {
         p.relative_to(root).as_posix(): p.read_bytes()
         for p in sorted(root.rglob("*"))
-        if p.is_file() and ".ig_archive_cache" not in p.parts
+        if p.is_file() and p.name != "run.log"
     }
 
 
@@ -76,9 +77,9 @@ def mock_answer(item_id: str, taxonomy: dict) -> dict:
 
 
 @contextmanager
-def mock_ollama(taxonomy_path: Path = FIXTURES / "taxonomy.json") -> Iterator[str]:
+def mock_ollama(taxonomy: dict | None = None) -> Iterator[str]:
     """Serves /api/chat and /api/tags on a free port; yields the host URL."""
-    taxonomy = json.loads(taxonomy_path.read_text(encoding="utf-8"))
+    taxonomy = taxonomy or TAXONOMY
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, data: dict) -> None:

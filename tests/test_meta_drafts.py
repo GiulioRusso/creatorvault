@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import json
 
 import pytest
@@ -75,13 +74,15 @@ def test_build_with_drafts(tmp_path):
     path = write_config("no_tags", tmp_path)
     cfg = yaml.safe_load(path.read_text())
     cfg["paths"]["meta_drafts"] = str(write_drafts(tmp_path / "drafts"))
-    cfg["advanced"]["only_top"] = False
+    cfg["selection"]["top_percentile"] = 100
     path.write_text(yaml.safe_dump(cfg))
     cli.main(["build", "--config", str(path)])
 
     vault = tmp_path / "vault"
-    with open(vault / "drafts_report.csv", encoding="utf-8-sig") as f:
-        report = {r["draft_id"]: r for r in csv.DictReader(f)}
+    review = (vault / "Review.md").read_text().split("## Meta drafts")[1].split("\n## ")[0]
+    rows = [line.split("|")[1:-1] for line in review.splitlines() if line.startswith("|")]
+    header, body = [h.strip() for h in rows[0]], rows[2:]
+    report = {r[0].strip(): dict(zip(header, [c.strip() for c in r], strict=True)) for r in body}
     assert report["1001"]["status"] == "published+draft"
     assert report["1001"]["duplicate_of"] == "https://example.com/p/p1"
     assert report["1003"]["status"] == report["1002"]["status"] == "draft"
@@ -95,9 +96,9 @@ def test_build_with_drafts(tmp_path):
         "duplicate_of": "",
     }
 
-    apollo = (vault / "posts" / "2024-06-10-apollo-11-lands-on-the-moon.md").read_text()
+    apollo = (vault / "archive" / "2024-06-10-apollo-11-lands-on-the-moon.md").read_text()
     assert "status: published+draft" in apollo and 'draft_ids: ["1001"]' in apollo
     assert "| Meta draft | `1001` |" in apollo
-    mercury = (vault / "posts" / f"{report['1002']['content']}.md").read_text()
+    mercury = (vault / "archive" / f"{report['1002']['content']}.md").read_text()
     assert 'draft_ids: ["1002", "1003"]' in mercury and "times_published: 0" in mercury
-    assert len(list((vault / "posts").glob("*.md"))) == 9 + 2
+    assert len(list((vault / "archive").glob("*.md"))) == 9 + 2

@@ -15,6 +15,7 @@ from creatorvault.sources.instagram import fix_mojibake
 # account's UI language, not a fixed one, so each maps several observed
 # header spellings.
 COLUMN_ALIASES = {
+    "post_type": ["post type", "tipo di post"],
     "publish_time": [
         "publish time",
         "ora di pubblicazione",
@@ -36,6 +37,20 @@ COLUMN_ALIASES = {
 }
 
 
+def classify_post_type(value: str) -> str | None:
+    """Identify the export's content kind without treating every video as a reel."""
+    text = value.strip().lower()
+    if "reel" in text:
+        return "reels"
+    if any(
+        word in text for word in ("image", "immagine", "carousel", "carosello", "photo", "video")
+    ):
+        return "posts"
+    if "stor" in text:
+        return "stories"
+    return None
+
+
 def load_table(path: Path) -> tuple[list[str], list[list[str]]]:
     """Loads CSV or XLSX, returning (header, rows)."""
     suffix = path.suffix.lower()
@@ -48,7 +63,11 @@ def load_table(path: Path) -> tuple[list[str], list[list[str]]]:
                 dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
             except csv.Error:
                 dialect = csv.excel
-            rows = [r for r in csv.reader(f, dialect) if any(c.strip() for c in r)]
+            # A short sample often makes Sniffer incorrectly disable escaped
+            # double quotes, splitting multiline captions into spurious rows.
+            rows = [
+                r for r in csv.reader(f, dialect, doublequote=True) if any(c.strip() for c in r)
+            ]
     elif suffix in (".xlsx", ".xlsm"):
         try:
             from openpyxl import load_workbook
@@ -109,18 +128,38 @@ DATE_FORMATS = [
 ]
 
 
-def parse_datetime(value: str, tz: Any) -> datetime | None:
+def parse_datetime(value: str, tz: Any, month_first: bool = False) -> datetime | None:
     value = value.strip()
     if not value:
         return None
     value = re.sub(r"\s*(UTC|GMT)[+-]?\d*$", "", value).strip()
-    for fmt in DATE_FORMATS:
+    formats = (
+        sorted(DATE_FORMATS, key=lambda fmt: "%m/%d" not in fmt) if month_first else DATE_FORMATS
+    )
+    for fmt in formats:
         try:
             naive = datetime.strptime(value, fmt)
             return naive.replace(tzinfo=tz).astimezone(UTC)
         except ValueError:
             continue
     return None
+
+
+def infer_month_first(values: list[str]) -> bool:
+    """Use unambiguous dates to select one slash-date convention per file."""
+    orders = set()
+    for value in values:
+        match = re.match(r"\s*(\d{1,2})/(\d{1,2})/\d{4}\b", value)
+        if not match:
+            continue
+        first, second = map(int, match.groups())
+        if first > 12 >= second:
+            orders.add(False)
+        elif second > 12 >= first:
+            orders.add(True)
+    if len(orders) > 1:
+        raise SystemExit("[!] Insights contain mixed day/month and month/day dates.")
+    return True in orders
 
 
 def to_float(value: str) -> float:
@@ -150,7 +189,7 @@ def parse_insights(paths: list[Path], tz: Any) -> list[dict[str, Any]]:
     to pass several. Duplicate rows across overlapping exports are dropped.
     """
     records: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str | None]] = set()
 
     for path in paths:
         header, rows = load_table(path)
@@ -162,6 +201,9 @@ def parse_insights(paths: list[Path], tz: Any) -> list[dict[str, Any]]:
                 "    Rename the date column to 'Publish time' and try again."
             )
 
+        date_column = cols["publish_time"]
+        month_first = infer_month_first([r[date_column] for r in rows if len(r) > date_column])
+
         added = 0
         for row in rows:
 
@@ -169,12 +211,13 @@ def parse_insights(paths: list[Path], tz: Any) -> list[dict[str, Any]]:
                 i = cols.get(name)  # noqa: B023 (called within the same iteration)
                 return row[i] if i is not None and i < len(row) else ""  # noqa: B023
 
-            dt = parse_datetime(cell("publish_time"), tz)
+            dt = parse_datetime(cell("publish_time"), tz, month_first)
             if dt is None:
                 continue
 
             permalink = cell("permalink").strip() or None
-            dedup_key = (permalink or "", dt.isoformat())
+            content_type = classify_post_type(cell("post_type"))
+            dedup_key = (permalink or "", dt.isoformat(), content_type)
             if dedup_key in seen:
                 continue
             seen.add(dedup_key)
@@ -211,6 +254,7 @@ def parse_insights(paths: list[Path], tz: Any) -> list[dict[str, Any]]:
                     "permalink": permalink,
                     "description": fix_mojibake(cell("description")),
                     "metrics": metrics,
+                    "content_type": content_type,
                 }
             )
             added += 1

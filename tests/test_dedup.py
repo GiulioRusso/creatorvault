@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import builtins
-import csv
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -90,8 +89,8 @@ def test_same_photo_code_different_captions(tmp_path):
     (content,) = contents
     assert content.photo_ids == ["AS08-14-2383"] and content.first.key == "1"
 
-    write_notes(contents, tmp_path / "vault", "attachments")
-    (note,) = (tmp_path / "vault" / "posts").glob("*.md")
+    write_notes(contents, tmp_path / "vault", {c.id: "slug" for c in contents})
+    (note,) = (tmp_path / "vault" / "archive").glob("*.md")
     text = note.read_text()
     assert note.name.startswith("2024-02-02-")  # first publication names the note
     assert "times_published: 3" in text and "  - repost/yes" in text
@@ -118,7 +117,7 @@ def test_same_image_rewritten_caption(tmp_path):
     pubs = [
         pub(1, "Crew portrait before launch.", [a]),
         pub(2, "Totally new words for this one", [b]),
-        pub(3, "Another crew portrait before launch", [c]),
+        pub(3, "Skylab crew portraits at the pad, 1973", [c]),
         pub(4, "A reel", [tmp_path / "v.mp4"]),
     ]
     contents, _ = dedup.dedup(pubs, cfg(tmp_path))
@@ -132,19 +131,31 @@ def test_different_codes_never_merge(tmp_path):
     assert len(contents) == 2 and review == []
 
 
-def test_maybe_pair_goes_to_review(tmp_path):
+def test_borderline_pair_is_a_candidate_not_a_merge(tmp_path):
     pubs = [
+        # Rewritten from scratch: too different for captions alone (code/image catch these).
         pub(1, "Gemini 4 spacewalk over the Pacific, June 1965. Ed White floats outside."),
         pub(2, "Ed White during the first American spacewalk, Gemini 4, June 1965, Pacific."),
+        # Reworded: borderline (0.73), left to the local model.
         pub(3, "Saturn V rolls out to pad 39A in 1967, ahead of Apollo 4."),
         pub(4, "In 1967 the Saturn V rolled out to pad 39A ahead of the Apollo 4 flight."),
+        # Lightly edited repost: merged (0.90).
+        pub(5, "Skylab rides a Saturn V to orbit, May 14, 1973."),
+        pub(6, "Skylab rides a Saturn V into orbit, May 14, 1973!"),
     ]
     contents, review = dedup.dedup(pubs, cfg(tmp_path))
-    assert groups(contents) == [["1"], ["2"], ["3", "4"]]
+    assert groups(contents) == [["1"], ["2"], ["3"], ["4"], ["5", "6"]]
     (row,) = review
-    assert 0.75 <= float(row["similarity"]) < 0.90
-    assert {row["a_ref"], row["b_ref"]} == {"https://example.com/p/1", "https://example.com/p/2"}
-    assert "dedup_review.csv" in contents[0].review_note
+    assert 0.70 <= float(row["similarity"]) < 0.85
+    assert {row["a_ref"], row["b_ref"]} == {"https://example.com/p/3", "https://example.com/p/4"}
+
+
+def test_similarity_ignores_shared_topic_words():
+    a = normalize_caption("Jul. 20, 1969: interior view of the Apollo 11 Lunar Module.", [])
+    b = normalize_caption("Jul. 20, 1969: Aldrin deploys the Apollo 11 seismic experiment.", [])
+    assert dedup.similarity(a, b) < 0.70
+    with pytest.raises(SystemExit, match="caption_maybe must be >= 0.6"):
+        DedupConfig.from_dict({"caption_maybe": 0.5})
 
 
 def test_overrides_merge_and_split(tmp_path, capsys):
@@ -189,17 +200,18 @@ def test_without_pillow(tmp_path, monkeypatch, capsys):
     assert "Pillow not installed" in capsys.readouterr().err
 
 
-def test_build_writes_dedup_review(tmp_path, monkeypatch):
+def test_build_leaves_nothing_to_review(tmp_path):
     from harness import write_config
 
-    path = write_config("no_tags", tmp_path)
+    path = write_config("tags", tmp_path)
     data = yaml.safe_load(path.read_text())
-    # Everything in the fixture differs; a near-zero threshold turns the two
-    # Skylab captions into a "maybe" pair.
-    data["dedup"] = {"caption_maybe": 0.5, "overrides": str(tmp_path / "none.yaml")}
-    data["advanced"]["only_top"] = False
+    # The lowest threshold allowed: any borderline pair found stays separate.
+    # Without a local reviewer it simply stays two contents.
+    data["dedup"] = {"caption_maybe": 0.6, "overrides": str(tmp_path / "none.yaml")}
+    data["tagging"]["enabled"] = False
     path.write_text(yaml.safe_dump(data))
     cli.main(["build", "--config", str(path)])
-    with open(tmp_path / "vault" / "dedup_review.csv", encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
-    assert any("Skylab" in r["a_caption"] and "Skylab" in r["b_caption"] for r in rows)
+    vault = tmp_path / "vault"
+    assert not list(vault.glob("*review*.csv"))
+    notes = [n.read_text() for n in (vault / "archive").glob("*.md")]
+    assert len(notes) == 9 and not any("Needs review" in n for n in notes)

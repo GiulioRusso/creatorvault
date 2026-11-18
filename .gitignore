@@ -1,15 +1,19 @@
 # --- Project-specific ---
 config/config.yaml
-config/taxonomy.json
-.claude
+config/config-*.yaml
+.claude/
+PLAN-*.md
 
-data/
+data/ig-export/*
+data/insights/*
 obsidian-output/
 obsidian-output-*/
 vault/
 vault-*/
 queue/
+.creatorvault-cache/
 /meta_catalog*.csv
+data/meta-drafts/
 
 # --- Python ---
 .venv/

@@ -49,13 +49,13 @@ def test_queue_config_normalizes():
     assert cfg.days == ["mon", "sat"] and cfg.time == "09:05"
 
 
-def content(n: int, program: str | None, *, draft=False, tier="top", year=2024, media="x.jpg"):
+def content(n: int, program: str | None, *, draft=False, rank=10, year=2024, media="x.jpg"):
     p = Publication(
         key=str(n),
         timestamp=datetime(year, 1, n, tzinfo=UTC),
         caption=f"Post {n}",
         media=[Path(media)] if media else [],
-        tier=None if draft else tier,
+        top_percent=None if draft else rank,
         metrics={} if draft else {"engagement": 100 - n},
         source=META_DRAFT if draft else "instagram_export",
         draft_id=str(n) if draft else None,
@@ -65,12 +65,12 @@ def content(n: int, program: str | None, *, draft=False, tier="top", year=2024, 
 
 def test_pick_order_and_axis_alternation(capsys):
     contents = [
-        content(1, "apollo"),  # top repost, best engagement
+        content(1, "apollo", rank=5),  # best rank
         content(2, "apollo"),
         content(3, "gemini"),
         content(4, "apollo", draft=True, year=2025),
         content(5, "apollo", draft=True, year=2023),
-        content(6, "skylab", tier="good"),  # not top: never a repost
+        content(6, "skylab", rank=None),  # no metrics: never a repost
         content(7, "voyager", year=2026),  # top but posted too recently
         content(8, None, draft=True, media="clip.mp4"),  # no image
     ]
@@ -85,31 +85,39 @@ def test_queue_command(tmp_path):
     cfg = yaml.safe_load(path.read_text())
     cfg["paths"]["meta_drafts"] = str(write_drafts(tmp_path / "drafts"))
     cfg["hashtags"] = {"strategy": "keep_original", "max": 5}
-    cfg["tiers"]["top_percentile"] = 100  # every post with metrics is a repost candidate
-    path.write_text(yaml.safe_dump(cfg))
+    cfg["selection"]["top_percentile"] = 100
     out = tmp_path / "queue"
+    cfg["queue"] = {"next": 6, "days": "mon,thu", "start": "2026-11-30", "out": str(out)}
+    path.write_text(yaml.safe_dump(cfg))
     out.mkdir()
     (out / "99-stale.txt").write_text("old queue")
     (out / "mine.txt").write_text("not ours")
 
-    cli.main(
-        ["queue", "--config", str(path), "--next", "4", "--days", "mon,thu"]
-        + ["--time", "19:30", "--start", "2026-11-30", "--out", str(out)]
-    )
+    cli.main(["queue", "--config", str(path)])
     with open(out / "queue.csv", encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
-    assert [r["date"] for r in rows] == ["2026-11-30", "2026-12-03", "2026-12-07", "2026-12-10"]
+    assert [r["date"] for r in rows] == [
+        "2026-11-30",
+        "2026-12-03",
+        "2026-12-07",
+        "2026-12-10",
+        "2026-12-14",
+        "2026-12-17",
+    ]
     assert len({r["note"] for r in rows}) == len(rows)  # no content twice
     assert all(len(HASHTAG.findall(r["caption"])) <= 5 for r in rows)
     assert rows[0]["note"].startswith("2025-08-02-mercury-7")  # the never-published draft
     assert all(r["time"] == "19:30" for r in rows)
     assert all((out / name).exists() for r in rows for name in r["image"].split("|"))
-    assert "|" in rows[-1]["image"]  # carousel: every image copied
+    assert any("|" in r["image"] for r in rows)  # carousel: every image copied
     texts = sorted(out.glob("0*.txt"))
     assert [t.read_text().strip() for t in texts] == [r["caption"] for r in rows]
     assert not (out / "99-stale.txt").exists() and (out / "mine.txt").exists()
 
 
-def test_queue_bad_start(tmp_path):
-    with pytest.raises(SystemExit, match="--start must be"):
-        cli.main(["queue", "--config", str(write_config("no_tags", tmp_path)), "--start", "soon"])
+@pytest.mark.parametrize(
+    ("raw", "message"), [({"start": "soon"}, "queue.start must be"), ({"next": 0}, "queue.next")]
+)
+def test_queue_bad_options(raw, message):
+    with pytest.raises(SystemExit, match=message):
+        QueueConfig.from_dict(raw)

@@ -1,9 +1,8 @@
-"""Unit tests for parsing, join, tiers and the Obsidian writers."""
+"""Unit tests for parsing, join, ranking and the Obsidian writers."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,9 +11,9 @@ from harness import FIXTURES
 from creatorvault.insights.meta import parse_insights, to_float
 from creatorvault.join import join_posts
 from creatorvault.models import Post
+from creatorvault.ranking import assign_ranks
 from creatorvault.sources.instagram import fix_mojibake, parse_ig_export, prepare_export
-from creatorvault.tiers import assign_tiers
-from creatorvault.writers.obsidian import slugify, write_review, yaml_quote
+from creatorvault.writers.obsidian import slugify, yaml_quote
 
 LA = ZoneInfo("America/Los_Angeles")
 T0 = datetime(2024, 6, 10, 16, tzinfo=UTC)
@@ -41,13 +40,11 @@ def test_join_tolerance_edges(offset, matched):
         assert review[0]["issue"] == "no matching post"
 
 
-def test_join_ambiguous_goes_to_review(tmp_path):
+def test_join_ambiguous_is_returned_unassigned():
     a, b = post("a", T0), post("b", T0 + timedelta(minutes=30))
     review = join_posts([a, b], [row(T0 + timedelta(minutes=15))], 90)
     assert review[0]["issue"] == "2 posts in the same time window"
-    assert a.match_note and b.match_note and not a.metrics
-    write_review(review, tmp_path)
-    assert "2 posts in the same time window" in (tmp_path / "review.csv").read_text("utf-8-sig")
+    assert not a.metrics and not b.metrics
 
 
 def test_join_description_disambiguates():
@@ -101,7 +98,7 @@ def test_to_float(raw, value):
     assert to_float(raw) == value
 
 
-# --- tiers ------------------------------------------------------------------
+# --- ranking ----------------------------------------------------------------
 
 
 def year_posts() -> list[Post]:
@@ -114,34 +111,34 @@ def year_posts() -> list[Post]:
     ]
 
 
-def tiers(posts: list[Post]) -> dict[str, str | None]:
-    return {p.key: p.tier for p in posts}
+def ranks(posts: list[Post]) -> dict[str, int | None]:
+    return {p.key: p.top_percent for p in posts}
 
 
-def test_tiers_per_year_vs_global():
+def test_ranks_per_year_vs_global():
     per_year, global_ = year_posts(), year_posts()
-    assign_tiers(per_year, "engagement", 50, "year")
-    assign_tiers(global_, "engagement", 50, "global")
-    assert tiers(per_year) == {"a": "top", "b": "average", "c": "top", "d": "average"}
-    assert tiers(global_) == {"a": "average", "b": "average", "c": "top", "d": "top"}
+    assign_ranks(per_year, "engagement", "year")
+    assign_ranks(global_, "engagement", "global")
+    assert ranks(per_year) == {"a": 50, "b": 100, "c": 50, "d": 100}
+    assert ranks(global_) == {"a": 75, "b": 100, "c": 25, "d": 50}
 
 
-def test_tiers_engagement_rate():
+def test_ranks_engagement_rate_ties_and_zero():
     posts = year_posts()
-    assign_tiers(posts, "engagement_rate", 25, "global")
-    assert tiers(posts) == {"a": "top", "b": "average", "c": "good", "d": "average"}
+    assign_ranks(posts, "engagement_rate", "global")
+    assert ranks(posts) == {"a": 25, "b": 75, "c": 50, "d": 100}
+    tied = [post(k, T0, engagement=v) for k, v in (("x", 3), ("y", 3), ("z", 0))]
+    assign_ranks(tied, "engagement")
+    assert ranks(tied) == {"x": 34, "y": 34, "z": 100}  # a zero is a value, not missing
 
 
-def test_tiers_missing_metric_is_skipped():
-    posts = year_posts()
-    assign_tiers(posts, "saves", 25, "global")
-    assert set(tiers(posts).values()) == {None}
-
-
-def test_tiers_no_data_group():
+def test_ranks_missing_metric(capsys):
     posts = [*year_posts(), post("e", datetime(2022, 1, 1, tzinfo=UTC))]
-    assign_tiers(posts, "engagement", 50, "year")
-    assert posts[-1].tier == "no-data"
+    assign_ranks(posts, "engagement")
+    assert posts[-1].top_percent is None
+    assign_ranks(posts, "saves")
+    assert set(ranks(posts).values()) == {None}
+    assert "No post has the metric 'saves'" in capsys.readouterr().err
 
 
 # --- export -----------------------------------------------------------------
@@ -166,7 +163,7 @@ def test_parse_export_from_zip(tmp_path):
 
 def test_prepare_export_rejects_other_files(tmp_path):
     with pytest.raises(SystemExit, match=r"\.zip or a folder"):
-        prepare_export(FIXTURES / "taxonomy.json", tmp_path)
+        prepare_export(FIXTURES / "config.yaml", tmp_path)
 
 
 def test_post_title():
@@ -206,8 +203,3 @@ def test_slugify(text, slug):
 )
 def test_yaml_quote(value, out):
     assert yaml_quote(value) == out
-
-
-def test_write_review_skips_empty(tmp_path: Path):
-    write_review([], tmp_path)
-    assert not (tmp_path / "review.csv").exists()

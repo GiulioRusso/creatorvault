@@ -30,9 +30,7 @@ def main() -> None:
                 subprocess.run([*ENTRY, "--config", str(cfg)], check=True, env=env)
                 dest = GOLDEN / run
                 shutil.rmtree(dest, ignore_errors=True)
-                shutil.copytree(
-                    run_dir(tmp_path), dest, ignore=shutil.ignore_patterns(".ig_archive_cache")
-                )
+                shutil.copytree(run_dir(tmp_path), dest, ignore=shutil.ignore_patterns("run.log"))
                 print(f"golden/{run} updated")
 
 

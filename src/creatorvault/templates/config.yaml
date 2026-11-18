@@ -1,153 +1,68 @@
-# creatorvault config. `creatorvault init` copies this template to
-# ./config/config.yaml: fill in your own paths there.
-# Everything is optional: `creatorvault build export.zip` works without any
-# config. Paths are relative to the folder you run creatorvault from (or
-# absolute). Check it with `creatorvault doctor`, then run `creatorvault build`.
+# creatorvault reads every option from this file. Run from the project folder:
+#   creatorvault build --config config/config.yaml
+# Relative paths are resolved from the folder where you run the command.
 
 paths:
-  # Instagram export: the ZIP from "Download your information" (or the
-  # already-extracted folder). Taken as a whole, exactly as downloaded.
-  # Default: the export passed on the command line, else the newest
-  # instagram-*.zip in ./data/ (any depth) or ./.
-  ig_export: data/ig-export/instagram-yourpage-2026-01-01-xxxxxxxx.zip
+  ig_export: data/ig-export/instagram-yourpage.zip   # required
+  # Split download? ig_export also accepts [data/part1.zip, data/part2.zip].
+  insights_dir: data/insights      # Optional; missing = no metrics.
+  meta_drafts: data/meta-drafts    # Optional; missing = no drafts.
+  out: vault                       # Obsidian vault: archive/ (dated), pool/ (undated),
+                                   # Review.md, run.log. Rebuilt in place.
 
-  # Folder with Meta Business Suite insight files: one per year (CSV or
-  # XLSX), auto-discovered. Meta caps each export to a short window, so
-  # there's normally one file per year in here. Optional: without it the
-  # archive has no metrics and every tier is "no-data".
-  insights_dir: data/insights
+content_types: [posts]             # [posts], [reels], or [posts, reels].
 
-  # Meta Business Suite drafts (optional): a folder with drafts.json and
-  # the draft images (format in the README, "Meta drafts"). Default:
-  # data/meta-drafts, used only if it exists.
-  # meta_drafts: data/meta-drafts
+# Which contents get a note. Posts are ranked on `metric` within each year
+# (scope: year) or across the archive (scope: global).
+#   top_percentile: 100 -> every content, drafts and posts without metrics too.
+#   top_percentile: 25  -> only contents in the best 25% (needs insights).
+selection:
+  metric: engagement_rate          # (likes+comments+shares+saves) / reach * 100
+  top_percentile: 100
+  scope: year
 
-  # Output folder (Obsidian vault). Created if missing. Default: vault
-  out: vault
-
-  # Folder where the Instagram export gets extracted and where the tag
-  # cache lives. Default: <out>/.ig_archive_cache
-  # cache: cache
-
-  # Taxonomy used for semantic tagging. Default: config/taxonomy.json
-  # Missing = tagging disabled (with a warning).
-  # taxonomy: config/taxonomy.json
-
-tiers:
-  # Metric used to pick "top" posts: any column from the insights file
-  # (reach, saves, ...), or "engagement" (likes+comments+shares+saves,
-  # computed automatically), or "engagement_rate" (engagement / reach, as a
-  # percentage — independent of how much the page has grown).
-  metric: engagement
-
-  # Percentile of posts in the "top" tier, per year. 25 = the best 25%.
-  top_percentile: 25
+# Reposts are merged into one content. Similarity >= caption_same merges;
+# between caption_maybe and caption_same the local model decides (review:),
+# otherwise the two stay separate. Nothing is left for you to review.
+dedup:
+  enabled: true
+  caption_maybe: 0.70             # Lowest allowed: 0.60.
+  caption_same: 0.85
 
 tagging:
-  # Ollama model used for semantic tagging of captions.
-  # Local: any tag pulled with `ollama pull <model>`.
-  # Cloud (needs `ollama signin`): tag with a "-cloud" suffix, e.g.
-  # "qwen3:235b-cloud".
-  # Prefer non-reasoning models (llama3.2, mistral) over reasoning ones
-  # (qwen3, deepseek-r1) — reasoning models are much slower here and can
-  # time out on a batch.
+  enabled: true                    # Categorize captions with Ollama.
   model: llama3.2:3b
+  required: false                  # true = stop if Ollama is unavailable.
 
-  # false = skip tagging entirely (no Ollama calls, empty tags). If Ollama
-  # is unreachable or the model isn't pulled, tagging is skipped with a
-  # warning anyway.
-  enabled: true
+review:
+  enabled: true                    # Local model settles ambiguous joins and duplicates.
+  min_confidence: 0.85             # Below this: kept separate / metrics left absent.
+
+# Name a category and list its labels. Lists allow multiple labels;
+# use {values: [...], multi: false} for one label.
+taxonomy:
+  program: [mercury, gemini, apollo, skylab, shuttle, iss, robotic-probes]
+  subject: [astronauts, rockets, launch, moon, earth, engineering, life-aboard]
 
 hashtags:
-  # Each note gets a "Ready to post" caption: the original text without its
-  # hashtags, a "." line, then at most `max` hashtags. Instagram doesn't
-  # publish scheduled/API posts with more than 5.
+  strategy: pool                   # pool, fixed, keep_original or taxonomy.
   max: 5
+  pool: [space, spacehistory, spaceexploration, vintagespace, spacerace,
+         spaceage, historyofspace, history, science]
 
-  # fixed: always the `fixed` list. keep_original: the first `max` of the
-  # post's own hashtags. taxonomy: hashtags mapped from the post's tags
-  # (below), topped up with `fixed`.
-  strategy: fixed
-  fixed: ["#history", "#space", "#moon", "#exploration", "#science"]
-  # taxonomy:
-  #   program/apollo: "#apollo"
-  #   program/gemini: "#gemini"
 
+# `creatorvault queue`: the next posting slots, as images + captions.
 queue:
-  # `creatorvault queue` fills these slots: never-published drafts first,
-  # then top-tier posts not published for min_repost_months.
-  # Tuesday and Friday are left out by default (reel days).
+  next: 10
+  # start: 2026-12-01              # First slot; default tomorrow.
   days: [mon, wed, thu, sat, sun]
   time: "19:30"
   min_repost_months: 12
+  out: queue
 
-dedup:
-  # Reposts of the same content become one note, with every publication
-  # listed. Signals: NASA photo code in the caption, image fingerprint
-  # (needs `pip install 'creatorvault[dedup]'`), caption similarity.
-  enabled: true
-
-  # Max Hamming distance between two 64-bit image fingerprints (0-64) for
-  # them to count as the same image.
-  image_distance: 6
-
-  # Caption similarity (0-1): >= caption_same merges; between caption_maybe
-  # and caption_same is written to dedup_review.csv instead.
-  caption_same: 0.90
-  caption_maybe: 0.75
-
-  # Regexes for photo codes. Same code = same content; two different codes
-  # are never merged, however similar the captions are.
-  # photo_id_patterns:
-  #   - 'AS\d{2}-\d{2,3}-\d{4,5}'
-  #   - 'S\d{2}-\d{4,5}(?:_G\d{2}(?:-S)?)?'
-  #   - 'GT\d+-\d+-\d+'
-  #   - 'STS\d{2,3}-\d+-\d+'
-  #   - 'ISS\d{3}-E-\d+'
-
-  # Whole caption lines ignored when comparing (regexes, case-insensitive).
-  # boilerplate:
-  #   - 'check (the )?link in (my |our )?bio.*'
-  #   - '[.\s]+'
-
-  # Manual decisions, read on every build. Each entry is a permalink, a
-  # Meta draft id or a date/timestamp prefix (2024-06-10, 2024-06-10T16:00):
-  #   merge:
-  #     - ["https://www.instagram.com/p/AAA/", "2023-05-01"]
-  #   split:
-  #     - ["https://www.instagram.com/p/BBB/", "https://www.instagram.com/p/CCC/"]
-  # overrides: config/dedup_overrides.yaml
-
-advanced:
-  # These rarely need changing per run (unlike tiers/tagging above). All
-  # optional: comment one out to fall back to the default shown.
-
-  # Max time difference (minutes) allowed when matching an insights row to
-  # a post by publish timestamp.
-  tolerance_minutes: 90
-
-  # Timezone the insights file's publish-time column is in. This is Meta
-  # Business Suite's own export default (Pacific Time), regardless of your
-  # account's timezone. Wrong value here is the #1 cause of a near-zero
-  # join match rate.
-  insights_tz: America/Los_Angeles
-
-  # "year" ranks posts against others from the same calendar year only;
-  # "global" ranks every post against every other post regardless of year.
-  tier_scope: year
-
-  # Only write a note for posts in the "top" tier. false (default) writes a
-  # note for every post regardless of tier.
-  only_top: false
-
-  # false (default): always write into `out`, replacing only the files the
-  # previous build generated (your own notes are never touched).
-  # true: every run writes a new <out>-YYYYMMDD-HHMMSS/ folder.
-  timestamped_out: false
-
-  # Name of the media subfolder inside the output vault.
-  attachments_dirname: attachments
-
-  # Captions sent per Ollama call. Lower it if a model times out on full
-  # batches.
-  batch_size: 15
+# `creatorvault catalog`: shop listing page -> Meta Commerce Manager CSV.
+# catalog:
+#   shop_url: https://example.com/shop
+#   out: meta_catalog.csv
+#   brand: Your Brand              # Default: last path segment of shop_url.
+#   currency: USD

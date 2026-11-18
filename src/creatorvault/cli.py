@@ -1,18 +1,24 @@
-"""Command-line entry point: init, doctor, build, queue, shop-catalog."""
+"""Command-line entry point: init, doctor, build, queue, catalog.
+
+Every option lives in the config file; the only flag is --config."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import shlex
 import sys
+import tempfile
 import zipfile
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
 
-from creatorvault.config import Settings, load_config, load_timezone, resolve
+from creatorvault.config import CatalogConfig, Settings, load_config, load_timezone, resolve
 from creatorvault.dedup import dedup
 from creatorvault.hashtags import ready_caption
 from creatorvault.insights.meta import (
@@ -22,28 +28,24 @@ from creatorvault.insights.meta import (
     parse_insights,
 )
 from creatorvault.join import join_posts
-from creatorvault.models import Content, log
-from creatorvault.queue import parse_days, parse_time, pick, slots, write_queue
+from creatorvault.models import RUN_LOG, Content, log
+from creatorvault.pool import write_pool
+from creatorvault.queue import pick, slots, write_queue
+from creatorvault.ranking import assign_ranks
+from creatorvault.review import Reviewer, check_local, review_duplicates, review_joins
 from creatorvault.sources.instagram import (
-    POSTS_JSON_CANDIDATES,
-    find_posts_json,
+    find_content_jsons,
+    metadata_type,
     parse_ig_export,
     prepare_export,
 )
 from creatorvault.sources.meta_drafts import parse_meta_drafts
 from creatorvault.tagging import ollama
-from creatorvault.tagging.taxonomy import axis_names, axis_values
-from creatorvault.tiers import assign_tiers
-from creatorvault.writers.obsidian import (
-    drafts_report,
-    sync_manifest,
-    write_index,
-    write_notes,
-    write_review,
-)
+from creatorvault.tagging.taxonomy import axis_names
+from creatorvault.writers.obsidian import POOL, write_notes, write_review
 
 DEFAULT_CONFIG = Path("config/config.yaml")
-TEMPLATES = {"config.yaml": "config.yaml", "taxonomy.json": "taxonomy.json"}
+TEMPLATES = {"config.yaml": "config.yaml"}
 
 
 # --------------------------------------------------------------------------
@@ -52,7 +54,7 @@ TEMPLATES = {"config.yaml": "config.yaml", "taxonomy.json": "taxonomy.json"}
 
 
 def init(dest: Path) -> None:
-    """Copies the config and taxonomy templates into dest. Never overwrites."""
+    """Copies the self-contained config template into dest. Never overwrites."""
     targets = {dest / name: src for name, src in TEMPLATES.items()}
     existing = [str(p) for p in targets if p.exists()]
     if existing:
@@ -72,30 +74,26 @@ def init(dest: Path) -> None:
 # --------------------------------------------------------------------------
 
 
-def load_taxonomy(s: Settings) -> dict:
-    """Missing taxonomy = no tagging (warning). A broken one is a hard error."""
-    if not s.taxonomy_path.exists():
-        return {}
-    try:
-        return json.loads(s.taxonomy_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"[!] Invalid taxonomy JSON in {s.taxonomy_path} ({exc})") from None
-
-
 def tag(posts: list, taxonomy: dict, s: Settings) -> None:
     """Tags in place. Ollama down or model missing = warning, never an error."""
     if not s.tag_enabled:
         log("[i] Tagging disabled by config: no semantic tags.")
         return
     if not taxonomy:
-        log(f"[!] No taxonomy at {s.taxonomy_path}: tagging disabled (`creatorvault init`).")
+        if s.tag_required:
+            raise SystemExit("[!] Tagging is required: add taxonomy categories to your config.")
+        log("[!] No taxonomy in config: tagging disabled (`creatorvault init`).")
         return
     try:
         ollama.check_model(s.tag_model)
-        ollama.tag_posts(
-            posts, taxonomy, s.tag_model, s.batch_size, s.cache_dir / "tags_cache.json"
-        )
+        # Changing categories or models must not reuse obsolete labels.
+        signature = json.dumps([s.tag_model, taxonomy], sort_keys=True)
+        digest = hashlib.sha256(signature.encode()).hexdigest()[:12]
+        cache = s.cache_dir / f"tags_cache-{digest}.json"
+        ollama.tag_posts(posts, taxonomy, s.tag_model, s.batch_size, cache)
     except SystemExit as exc:
+        if s.tag_required:
+            raise SystemExit(f"[!] Tagging is required: {exc}") from None
         log(f"[!] Tagging disabled: {str(exc).removeprefix('[!] ')}")
 
 
@@ -111,61 +109,138 @@ class Archive:
     """Everything build and queue need, before anything is written."""
 
     contents: list[Content]
-    review: list[dict]
-    dedup_review: list[dict]
     taxonomy: dict
     n_read: int
     n_drafts: int
     n_contents: int
     n_groups: int
+    review_audit: list[dict] = field(default_factory=list)
 
 
-def collect(s: Settings) -> Archive:
-    """Export + insights + drafts -> tagged, deduplicated contents."""
-    if not s.ig_export.exists():
-        raise SystemExit(f"[!] Instagram export not found: {s.ig_export}")
+def local_reviewer(s: Settings) -> Reviewer | None:
+    """The local model that settles ambiguous joins and duplicates. When it
+    can't run, ambiguous cases stay unresolved (separate contents, no
+    metrics): nothing is left for you to review by hand."""
+    if not s.review.enabled:
+        return None
+    try:
+        check_local(s.review.model)
+    except SystemExit as exc:
+        if s.tag_required:
+            raise SystemExit(f"[!] Automated review is required: {exc}") from None
+        log(f"[!] Automated review skipped: {str(exc).removeprefix('[!] ')}")
+        return None
+    reviewer = Reviewer(s.review, s.cache_dir / "review-cache.json")
+    reviewer.checked = True
+    return reviewer
+
+
+def collect(s: Settings, workdir: Path) -> Archive:
+    """Export + insights + drafts -> tagged, deduplicated contents. ZIPs are
+    extracted into workdir, which must outlive the use of the media paths."""
+    exports = s.ig_exports or [s.ig_export]
+    for export in exports:
+        if not export.exists():
+            raise SystemExit(f"[!] Instagram export not found: {export}")
     insight_files = discover_insight_files(s.insights_dir)
     tz = load_timezone(s.insights_tz_name)
-    taxonomy = load_taxonomy(s)
+    taxonomy = s.taxonomy
     s.cache_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Instagram export
-    root = prepare_export(s.ig_export, s.cache_dir)
-    posts = parse_ig_export(root)
+    roots = []
+    for n, export in enumerate(exports):
+        part = workdir / f"part-{n}"
+        part.mkdir()
+        roots.append(prepare_export(export, part))
+    posts_by_key = {}
+    for root in roots:
+        other_roots = [p for p in roots if p != root]
+        if not find_content_jsons(root, s.content_types):
+            log(f"[i] Export part {root} has no selected metadata: using its media only.")
+            continue
+        for post in parse_ig_export(root, other_roots, s.content_types):
+            # Split downloads can repeat the same metadata. That is one
+            # publication, even when repost deduplication is disabled.
+            posts_by_key.setdefault((post.content_type, post.key, post.caption), post)
+    posts = sorted(posts_by_key.values(), key=lambda p: p.timestamp)
     if not posts:
-        raise SystemExit("[!] No posts found in the export.")
+        raise SystemExit(f"[!] No {'/'.join(s.content_types)} found in the export.")
 
     # 2. Insights + join
     if not insight_files:
         log("[i] No insights: archive without metrics.")
     insights = parse_insights(insight_files, tz)
-    review = join_posts(posts, insights, s.tolerance_minutes)
-    assign_tiers(posts, s.tier_metric, s.tier_top_pct, s.tier_scope)
-    if not insight_files:
-        for p in posts:
-            p.tier = "no-data"
+    insights = [
+        r for r in insights if not r.get("content_type") or r["content_type"] in s.content_types
+    ]
+    ambiguous = join_posts(posts, insights, s.tolerance_minutes)
+    reviewer = local_reviewer(s) if ambiguous or s.dedup.enabled else None
+    if reviewer is not None:
+        review_joins(posts, insights, ambiguous, reviewer)
+    assign_ranks(posts, s.selection.metric, s.selection.scope)
 
     # 3. Meta drafts (no metrics) + repost detection across everything
-    drafts = parse_meta_drafts(s.meta_drafts)
-    contents, dedup_review = dedup(posts + drafts, s.dedup)
+    drafts = [d for d in parse_meta_drafts(s.meta_drafts) if d.content_type in s.content_types]
+    contents, borderline = dedup(posts + drafts, s.dedup)
+    if reviewer is not None and borderline:
+        contents = review_duplicates(contents, borderline, reviewer, s.dedup)
+    # Without a reviewer, borderline pairs simply stay separate contents.
     n_contents = len(contents)
     n_groups = sum(len(c.publications) > 1 for c in contents)
 
-    if s.only_top:
-        contents = [c for c in contents if c.best_tier in ("top", None)]
-        log(f"[i] only_top: {len(contents)} content(s) kept.")
+    sel = s.selection
+    if not sel.keeps_all:
+        contents = [
+            c for c in contents if c.top_percent is not None and c.top_percent <= sel.top_percentile
+        ]
+        log(f"[i] Top {sel.top_percentile:g}% on {sel.metric}: {len(contents)} content(s) kept.")
+        if not contents:
+            log("[!] Nothing ranked: no insights? Set selection.top_percentile: 100 to keep all.")
 
     # 4. Tags, then the ready-to-post caption (taxonomy hashtags need the tags)
     tag(contents, taxonomy, s)
     for c in contents:
         c.ready_caption = ready_caption(c.caption, c.tags, s.hashtags)
     return Archive(
-        contents, review, dedup_review, taxonomy, len(posts), len(drafts), n_contents, n_groups
+        contents,
+        taxonomy,
+        len(posts),
+        len(drafts),
+        n_contents,
+        n_groups,
+        reviewer.audit if reviewer is not None else [],
     )
 
 
-def build(s: Settings) -> None:
-    a = collect(s)
+def rerun_command(config: Path) -> str:
+    env = os.environ.get("PYTHONPATH")
+    prefix = f"PYTHONPATH={shlex.quote(env)} " if env else ""
+    return (
+        f"cd {shlex.quote(os.getcwd())} && {prefix}{shlex.quote(sys.executable)} "
+        f"-m creatorvault build --config {shlex.quote(str(config))}"
+    )
+
+
+def build(s: Settings, config: Path) -> None:
+    RUN_LOG.clear()
+    started = datetime.now()
+    # The extracted export is only needed while the media are copied.
+    with tempfile.TemporaryDirectory(prefix="creatorvault-") as tmp:
+        a = collect(s, Path(tmp))
+        out_dir = write_vault(s, a)
+    command = rerun_command(config)
+    log(f"\n[OK] Vault in {out_dir}: open it in Obsidian and start from 'Review.md'.")
+    elapsed = str(datetime.now() - started).split(".")[0]
+    header = [
+        f"# creatorvault build, {started:%Y-%m-%d %H:%M}, {elapsed} elapsed",
+        f"# rerun: {command}",
+        "",
+    ]
+    (out_dir / "run.log").write_text("\n".join(header + RUN_LOG) + "\n", encoding="utf-8")
+
+
+def write_vault(s: Settings, a: Archive) -> Path:
     out_dir = s.out_base
     if s.timestamped_out:
         # Each run gets its own folder, so a rerun never touches a previous archive.
@@ -173,24 +248,20 @@ def build(s: Settings) -> None:
         out_dir = s.out_base.parent / f"{s.out_base.name}-{stamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    written = write_notes(a.contents, out_dir, s.attachments_dirname, s.hashtags.max)
-    written.append(write_index(out_dir, a.taxonomy))
-    written += write_review(a.review, out_dir)
-    written += write_review(a.dedup_review, out_dir, "dedup_review.csv")
-    written += write_review(drafts_report(a.contents), out_dir, "drafts_report.csv")
-    sync_manifest(out_dir, written)
-
-    print_summary(
-        [
-            ("posts read", a.n_read),
-            ("unique contents", a.n_contents),
-            ("duplicate groups", a.n_groups),
-            ("drafts", a.n_drafts),
-            ("notes written", len(a.contents)),
-            ("rows to review", len(a.review) + len(a.dedup_review)),
-        ]
-    )
-    log(f"\n[OK] Vault in {out_dir}: open it in Obsidian and start from 'Post Archive.md'.")
+    slugs = write_pool(a.contents, out_dir / POOL)
+    write_notes(a.contents, out_dir, slugs)
+    summary = [
+        ("publications read", a.n_read),
+        ("unique contents", a.n_contents),
+        ("duplicate groups", a.n_groups),
+        ("drafts", a.n_drafts),
+        ("notes written", len(a.contents)),
+        ("decided by the local model", len(a.review_audit)),
+        ("untagged", sum(not c.tags for c in a.contents)),
+    ]
+    write_review(out_dir, a.contents, slugs, summary, a.review_audit, a.taxonomy)
+    print_summary(summary)
+    return out_dir
 
 
 # --------------------------------------------------------------------------
@@ -198,21 +269,33 @@ def build(s: Settings) -> None:
 # --------------------------------------------------------------------------
 
 
-def queue(s: Settings, args: argparse.Namespace) -> None:
-    days = parse_days(args.days) if args.days else s.queue.days
-    time = parse_time(args.time) if args.time else s.queue.time
-    try:
-        start = date.fromisoformat(args.start) if args.start else date.today() + timedelta(days=1)
-    except ValueError:
-        raise SystemExit(f"[!] --start must be YYYY-MM-DD, got: {args.start}") from None
-
-    a = collect(s)
-    axes = axis_names(a.taxonomy)
-    chosen = pick(
-        a.contents, args.next, start, s.queue.min_repost_months, axes[0] if axes else None
-    )
-    path = write_queue(chosen, slots(start, days, len(chosen)), time, args.queue_out)
+def queue(s: Settings) -> None:
+    q = s.queue
+    start = q.first_day()
+    with tempfile.TemporaryDirectory(prefix="creatorvault-") as tmp:
+        a = collect(s, Path(tmp))
+        axes = axis_names(a.taxonomy)
+        chosen = pick(a.contents, q.next, start, q.min_repost_months, axes[0] if axes else None)
+        path = write_queue(chosen, slots(start, q.days, len(chosen)), q.time, q.out)
     log(f"\n[OK] {len(chosen)} post(s) queued in {path.parent} (checklist: {path.name}).")
+
+
+# --------------------------------------------------------------------------
+# catalog
+# --------------------------------------------------------------------------
+
+
+def catalog(cfg: dict) -> None:
+    c = CatalogConfig.from_config(cfg)
+    try:
+        from creatorvault.shop_catalog import build_catalog, write_catalog_csv
+    except ImportError:
+        raise SystemExit("[!] The catalog needs the shop extra: pip install '.[shop]'") from None
+    rows = build_catalog(c.shop_url, c.currency, c.brand)
+    if not rows:
+        raise SystemExit("[!] No product parsed successfully: nothing written.")
+    write_catalog_csv(rows, c.out)
+    log(f"\n[OK] {len(rows)} product(s) written to {c.out}")
 
 
 # --------------------------------------------------------------------------
@@ -225,22 +308,39 @@ class Warn(Exception):
 
 
 def check_export(s: Settings) -> str:
-    if not s.ig_export.exists():
-        raise SystemExit(f"not found: {s.ig_export}")
-    if s.ig_export.is_dir():
-        return f"posts JSON: {find_posts_json(s.ig_export).relative_to(s.ig_export)}"
+    exports = s.ig_exports or [s.ig_export]
+    results = []
+    for export in exports:
+        try:
+            results.append(check_export_path(export, s.content_types))
+        except SystemExit as exc:
+            if len(exports) > 1 and "no " in str(exc) and " JSON" in str(exc):
+                results.append("media-only part")
+            else:
+                raise
+    if all(result == "media-only part" for result in results):
+        raise SystemExit(f"no {'/'.join(s.content_types)} JSON in any export part")
+    return "; ".join(results)
+
+
+def check_export_path(path: Path, content_types: list[str] | None = None) -> str:
+    selected = content_types if content_types is not None else ["posts"]
+    if not path.exists():
+        raise SystemExit(f"not found: {path}")
+    if path.is_dir():
+        found = find_content_jsons(path, selected)
+        if not found:
+            raise SystemExit(f"no {'/'.join(selected)} JSON in the export folder")
+        return "; ".join(f"{kind} JSON: {p.relative_to(path)}" for p, kind in found)
     try:
-        with zipfile.ZipFile(s.ig_export) as zf:
+        with zipfile.ZipFile(path) as zf:
             names = zf.namelist()
     except zipfile.BadZipFile:
-        raise SystemExit(f"not a readable ZIP: {s.ig_export}") from None
-    for rel in POSTS_JSON_CANDIDATES:
-        if rel in names:
-            return f"posts JSON: {rel}"
-    found = sorted(n for n in names if Path(n).name.startswith("posts_") and n.endswith(".json"))
+        raise SystemExit(f"not a readable ZIP: {path}") from None
+    found = sorted(n for n in names if metadata_type(Path(n)) in selected)
     if found:
-        return f"posts JSON: {found[0]}"
-    raise SystemExit("no posts JSON in the ZIP (did you pick JSON, not HTML?)")
+        return f"{'/'.join(selected)} JSON: {found[0]}"
+    raise SystemExit(f"no {'/'.join(selected)} JSON in the ZIP (did you pick JSON, not HTML?)")
 
 
 def check_insights(s: Settings) -> str:
@@ -266,15 +366,11 @@ def check_timezone(s: Settings) -> str:
 
 
 def check_taxonomy(s: Settings) -> str:
-    if not s.taxonomy_path.exists():
-        raise Warn(f"not found: {s.taxonomy_path}: tagging disabled")
-    taxonomy = load_taxonomy(s)
-    axes = axis_names(taxonomy)
-    if not axes:
-        raise SystemExit("no axes (keys not starting with _)")
-    empty = [a for a in axes if not isinstance(taxonomy[a], dict) or not axis_values(taxonomy[a])]
-    if empty:
-        raise SystemExit(f"axes without values: {', '.join(empty)}")
+    if not s.taxonomy:
+        if s.tag_required and s.tag_enabled:
+            raise SystemExit("tagging required but no taxonomy configured")
+        raise Warn("no taxonomy in config: tagging disabled")
+    axes = axis_names(s.taxonomy)
     return f"{len(axes)} axis/axes: {', '.join(axes)}"
 
 
@@ -284,7 +380,13 @@ def check_ollama(s: Settings) -> str:
     try:
         return ollama.check_model(s.tag_model)
     except SystemExit as exc:
+        if s.tag_required:
+            raise
         raise Warn(f"{exc}; tagging will be skipped") from None
+
+
+def check_review(s: Settings) -> str:
+    return check_local(s.review.model) if s.review.enabled else "automated review disabled"
 
 
 CHECKS: list[tuple[str, Callable[[Settings], str]]] = [
@@ -294,14 +396,12 @@ CHECKS: list[tuple[str, Callable[[Settings], str]]] = [
     ("timezone", check_timezone),
     ("taxonomy", check_taxonomy),
     ("ollama", check_ollama),
+    ("review", check_review),
 ]
 
 
 def settings_for(args: argparse.Namespace) -> Settings:
-    """--config given = must exist; otherwise ./config/config.yaml if present."""
-    cfg_path = args.config or DEFAULT_CONFIG
-    cfg = load_config(cfg_path, required=args.config is not None)
-    return resolve(cfg, getattr(args, "export", None), getattr(args, "out", None))
+    return resolve(load_config(args.config))
 
 
 def doctor(args: argparse.Namespace) -> bool:
@@ -309,8 +409,7 @@ def doctor(args: argparse.Namespace) -> bool:
     results: list[tuple[str, str, str]] = []
     try:
         s = settings_for(args)
-        cfg_path = args.config or DEFAULT_CONFIG
-        results.append(("config", "PASS", str(cfg_path) if cfg_path.exists() else "defaults"))
+        results.append(("config", "PASS", str(args.config)))
     except SystemExit as exc:
         results.append(("config", "FAIL", str(exc)))
     else:
@@ -333,20 +432,13 @@ def doctor(args: argparse.Namespace) -> bool:
 
 
 def main(argv: list[str] | None = None) -> None:
-    argv = sys.argv[1:] if argv is None else argv
-    # shop-catalog has its own parser (and optional dependencies).
-    if argv[:1] == ["shop-catalog"]:
-        from creatorvault.shop_catalog import main as shop_main
-
-        shop_main(argv[1:])
-        return
-
     ap = argparse.ArgumentParser(
         prog="creatorvault",
-        description="Turn your own social-media exports into a searchable Obsidian archive.",
+        description="Turn your own social-media exports into a searchable Obsidian archive. "
+        "Every option is set in the config file.",
     )
     sub = ap.add_subparsers(dest="command", required=True)
-    p_init = sub.add_parser("init", help="copy the config and taxonomy templates into ./config/")
+    p_init = sub.add_parser("init", help="create a commented config file")
     p_init.add_argument(
         "--dir",
         type=Path,
@@ -354,37 +446,19 @@ def main(argv: list[str] | None = None) -> None:
         help="destination folder (default: ./config)",
     )
     for name, help_ in (
-        ("build", "build the Obsidian archive"),
+        ("build", "build the Obsidian vault: dated archive, content pool, Review.md"),
         ("doctor", "check config, exports, timezone, taxonomy and Ollama"),
+        ("queue", "prepare images + captions for the next posting slots (queue: section)"),
+        ("catalog", "shop listing page -> Meta catalog CSV (catalog: section)"),
     ):
         p = sub.add_parser(name, help=help_)
         p.add_argument(
-            "export",
-            nargs="?",
-            type=Path,
-            help="Instagram export .zip or folder (default: paths.ig_export, "
-            "else the newest instagram-*.zip in ./data/ or ./)",
-        )
-        p.add_argument(
             "--config",
             type=Path,
-            help="YAML config file (default: ./config/config.yaml if it exists)",
+            default=DEFAULT_CONFIG,
+            help=f"YAML config file (default: {DEFAULT_CONFIG})",
         )
-        p.add_argument(
-            "--out", type=Path, help="output vault folder (default: paths.out or vault/)"
-        )
-    p_queue = sub.add_parser("queue", help="prepare images + captions for the next posts")
-    p_queue.add_argument("export", nargs="?", type=Path, help="as for build")
-    p_queue.add_argument("--config", type=Path, help="as for build")
-    p_queue.add_argument("--next", type=int, default=10, help="how many posts (default: 10)")
-    p_queue.add_argument("--days", help="e.g. mon,wed,thu,sat,sun (default: queue.days)")
-    p_queue.add_argument("--time", help="HH:MM (default: queue.time)")
-    p_queue.add_argument("--start", help="first date, YYYY-MM-DD (default: tomorrow)")
-    p_queue.add_argument(
-        "--out", dest="queue_out", type=Path, default=Path("queue"), help="default: queue/"
-    )
-    sub.add_parser("shop-catalog", help="shop listing page -> Meta catalog CSV (see --help)")
-    args = ap.parse_args(argv)
+    args = ap.parse_args(sys.argv[1:] if argv is None else argv)
 
     if args.command == "init":
         init(args.dir)
@@ -392,6 +466,8 @@ def main(argv: list[str] | None = None) -> None:
         if not doctor(args):
             raise SystemExit(1)
     elif args.command == "queue":
-        queue(settings_for(args), args)
+        queue(settings_for(args))
+    elif args.command == "catalog":
+        catalog(load_config(args.config))
     else:
-        build(settings_for(args))
+        build(settings_for(args), args.config)

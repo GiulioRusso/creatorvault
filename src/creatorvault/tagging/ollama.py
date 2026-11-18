@@ -36,6 +36,9 @@ def ollama_chat(model: str, system: str, user: str, schema: dict[str, Any] | Non
     request: dict[str, Any] = {
         "model": model,
         "stream": False,
+        # Reasoning models (qwen3, deepseek-r1) would otherwise spend hundreds
+        # of hidden tokens per call; ignored by models that don't reason.
+        "think": False,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -51,7 +54,8 @@ def ollama_chat(model: str, system: str, user: str, schema: dict[str, Any] | Non
         f"{OLLAMA_HOST}/api/chat", data=body, headers=headers, method="POST"
     )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        # ponytail: fixed 10 min, local 8B models need minutes per batch of long captions.
+        with urllib.request.urlopen(req, timeout=600) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.URLError as exc:
         raise SystemExit(

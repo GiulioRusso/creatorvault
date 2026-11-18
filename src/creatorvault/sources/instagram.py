@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import filecmp
 import json
-import shutil
+import re
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -46,13 +47,6 @@ def prepare_export(path: Path, workdir: Path) -> Path:
     if path.suffix.lower() != ".zip":
         raise SystemExit(f"[!] ig_export must be a .zip or a folder: {path}")
     dest = workdir / "ig_export"
-    stamp = workdir / "ig_export.zip.mtime"
-    current_mtime = path.stat().st_mtime
-    if dest.exists():
-        if stamp.exists() and stamp.read_text() == str(current_mtime):
-            log(f"[i] Export already extracted in {dest}, reusing.")
-            return dest
-        shutil.rmtree(dest)
     log(f"[i] Extracting {path.name} ...")
     dest.mkdir(parents=True, exist_ok=True)
     failed = 0
@@ -69,8 +63,18 @@ def prepare_export(path: Path, workdir: Path) -> Path:
             f"[!] {failed} file(s) not extracted (undownloaded placeholders?): "
             f"the corresponding notes will be missing media."
         )
-    stamp.write_text(str(current_mtime))
     return dest
+
+
+def metadata_type(path: Path) -> str | None:
+    """Classify publication JSON names, excluding unrelated insights/history files."""
+    if any(part in path.parts for part in ("__MACOSX", "logged_information", "ads_information")):
+        return None
+    if re.fullmatch(r"posts_\d+\.json", path.name):
+        return "posts"
+    if re.fullmatch(r"reels(?:_\d+)?\.json", path.name):
+        return "reels"
+    return None
 
 
 def find_posts_json(root: Path) -> Path:
@@ -79,7 +83,9 @@ def find_posts_json(root: Path) -> Path:
         if p.exists():
             return p
     # Fallback: look everywhere for a posts_*.json
-    matches = sorted(root.rglob("posts_1.json")) or sorted(root.rglob("posts_*.json"))
+    matches = sorted(
+        p for p in root.rglob("posts_1.json") if metadata_type(p) == "posts"
+    ) or sorted(p for p in root.rglob("posts_*.json") if metadata_type(p) == "posts")
     if matches:
         return matches[0]
     raise SystemExit(
@@ -88,20 +94,99 @@ def find_posts_json(root: Path) -> Path:
     )
 
 
-def parse_ig_export(root: Path) -> list[Post]:
-    posts_json = find_posts_json(root)
+def find_content_jsons(root: Path, content_types: list[str]) -> list[tuple[Path, str]]:
+    """Discover selected post/reel metadata without confusing media-only ZIP parts."""
+    found = []
+    if "posts" in content_types:
+        try:
+            first = find_posts_json(root)
+        except SystemExit:
+            pass
+        else:
+            found.extend(
+                (path, "posts")
+                for path in sorted(first.parent.glob("posts_*.json"))
+                if re.fullmatch(r"posts_\d+\.json", path.name)
+            )
+    if "reels" in content_types:
+        found.extend(
+            (path, "reels")
+            for path in sorted(root.rglob("reels*.json"))
+            if metadata_type(path) == "reels"
+        )
+    return found
+
+
+class MediaLookup:
+    """Find media across separate export parts, preserving relative subfolders.
+
+    Roots come from the extracted ZIP parts. Ambiguous paths with different
+    file contents fail instead of silently attaching the wrong photo.
+    """
+
+    def __init__(self, roots: list[Path]):
+        self.roots = list(dict.fromkeys(p.resolve() for p in roots))
+        for root in self.roots:
+            if not root.is_dir():
+                raise SystemExit(f"[!] Media folder not found: {root}")
+        self.by_name: dict[str, list[Path]] | None = None
+
+    def find(self, uri: str) -> Path | None:
+        parts = Path(uri).parts
+        if not parts or Path(uri).is_absolute() or ".." in parts:
+            raise SystemExit(f"[!] Invalid relative media path: {uri}")
+        if self.by_name is None:
+            self.by_name = {}
+            for root in self.roots:
+                for path in root.rglob("*"):
+                    if path.is_file() and "__MACOSX" not in path.parts:
+                        self.by_name.setdefault(path.name, []).append(path)
+        named = list(dict.fromkeys(self.by_name.get(parts[-1], [])))
+        exact = [p for p in named if p.parts[-len(parts) :] == parts]
+        candidates = list(dict.fromkeys(exact or named))
+        if not candidates:
+            return None
+        first = candidates[0]
+        if any(not filecmp.cmp(first, other, shallow=False) for other in candidates[1:]):
+            choices = ", ".join(str(p) for p in candidates)
+            raise SystemExit(
+                f"[!] Ambiguous media '{uri}': {choices}. Keep only the correct source."
+            )
+        return first
+
+
+def parse_ig_export(
+    root: Path, other_exports: list[Path] | None = None, content_types: list[str] | None = None
+) -> list[Post]:
+    """Read selected post/reel JSONs and resolve media across export parts."""
+    selected = content_types if content_types is not None else ["posts"]
+    metadata = find_content_jsons(root, selected)
+    if not metadata:
+        raise SystemExit(f"[!] No {'/'.join(selected)} JSON found in the export.")
+    lookup = MediaLookup([root, *(other_exports or [])])
+    posts = []
+    for posts_json, kind in metadata:
+        posts.extend(_parse_posts_json(root, posts_json, lookup, kind))
+    posts.sort(key=lambda p: p.timestamp)
+    log(f"[i] Found {len(posts)} {'/'.join(selected)} publication(s) in the export.")
+    return posts
+
+
+def _parse_posts_json(
+    root: Path, posts_json: Path, lookup: MediaLookup, kind: str = "posts"
+) -> list[Post]:
     log(f"[i] Reading {posts_json.relative_to(root)}")
     with open(posts_json, encoding="utf-8") as f:
         raw = json.load(f)
 
     if isinstance(raw, dict):
         # Some export versions wrap the list in a key
-        for key in ("posts", "media", "ig_posts"):
+        for key in ("posts", "media", "ig_posts", "ig_reels_media", "reels"):
             if key in raw and isinstance(raw[key], list):
                 raw = raw[key]
                 break
         else:
-            raise SystemExit("[!] Unrecognized posts JSON structure.")
+            raise SystemExit(f"[!] Unrecognized {kind} JSON structure in {posts_json.name}.")
 
     posts: list[Post] = []
     for entry in raw:
@@ -126,21 +211,14 @@ def parse_ig_export(root: Path) -> list[Post]:
             uri = m.get("uri")
             if not uri:
                 continue
-            p = root / uri
-            if p.exists():
+            p = lookup.find(uri)
+            if p is not None:
                 paths.append(p)
-            else:
-                # Some exports nest content under a subfolder; fall back to
-                # searching the whole export tree by filename.
-                alt = next(root.rglob(Path(uri).name), None)
-                if alt:
-                    paths.append(alt)
 
         if not paths:
             continue
 
-        posts.append(Post(key=str(int(ts_raw)), timestamp=ts, caption=caption, media=paths))
+        key = str(int(ts_raw)) if kind == "posts" else f"reel-{int(ts_raw)}"
+        posts.append(Post(key=key, timestamp=ts, caption=caption, media=paths, content_type=kind))
 
-    posts.sort(key=lambda p: p.timestamp)
-    log(f"[i] Found {len(posts)} post(s) in the export.")
     return posts

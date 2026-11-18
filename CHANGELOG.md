@@ -1,5 +1,46 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Local LLM review of ambiguous insight joins and duplicate candidates, with validated decisions, caches and conservative fallbacks: nothing is left for manual review. Decisions are listed in `Review.md`.
+- Undated content pool in `<out>/pool/`: one `<slug>/post.md` + media folder per selected content, with the prepared description, tags and rank, no publication dates. Hand-written pool posts (`origin: manual`) are never overwritten.
+- `Review.md` (summary, model decisions, Meta drafts, untagged contents, Dataview queries) and `run.log` (with the command to rerun) in every vault.
+- `selection.top_percentile` / `selection.scope` / `selection.metric`: one percentile decides which contents get a note; `100` keeps everything. Notes record `top_percent` (in the best N% of their year or archive).
+- `creatorvault catalog`: the shop catalog now reads a `catalog:` config section.
+- `content_types: [posts]`, `[reels]` or `[posts, reels]` to select Instagram metadata, drafts and typed insights from the same config. Reels are read from `reels.json` and labeled in vault notes.
+- `hashtags.strategy: pool`: choose up to five unique hashtags from a configured topic pool, ignoring originals, with stable choices per cleaned caption.
+- Split Instagram downloads: a list of ZIPs in `paths.ig_export`. Media paths are matched across parts; ambiguous files fail clearly.
+- Import all numbered post JSON files and ignore repeated publication metadata across download parts.
+- One-file configuration: inline YAML category lists, a concise example and a single-file `init` template.
+- `tagging.required` to fail when categorization is enabled but its taxonomy or Ollama/model is unavailable.
+
+### Fixed
+- Caption similarity no longer scores unrelated captions as duplicates: the token-set component (high whenever a short caption's common words appear in a long one) is gone; plain `SequenceMatcher` with a word-overlap prefilter, defaults `caption_same: 0.85` / `caption_maybe: 0.70` (minimum 0.60), calibrated on a real archive. Dedup on 2k posts drops from ~13 minutes to seconds.
+- Ollama calls send `think: false`, so reasoning models such as qwen3 are usable for tagging and review.
+- Validate caption-similarity thresholds as fractions from 0 to 1 and document the 75% review/merge options.
+- Keep same-time post/reel insights separate during deduplication and metric matching.
+- CSV insights preserve multiline captions with escaped quotes and infer slash-date order per file from unambiguous dates.
+
+### Changed
+- Vault layout: `archive/` (dated notes) + `pool/` (undated posts, the only copy of the media) + `Review.md` + `run.log`. No `attachments/`, `Post Archive.md`, CSV reports or manifest; caches live in `.creatorvault-cache/` outside the vault and the export is extracted to a temporary folder.
+- Vault notes keep one prepared Description with up to five hashtags; the original-caption section and original-hashtag lint metadata are no longer written.
+- Tag caches are separated by model and taxonomy, so edited categories no longer reuse obsolete labels.
+- **The config file is the only entry point**: commands take only `--config` (default `config/config.yaml`, now required). `paths.ig_export` is required. Unknown sections, unknown `advanced` options and removed options fail with the replacement named.
+- `queue` options (`next`, `start`, `days`, `time`, `out`) moved from flags to the `queue:` section.
+- Performance tiers (`top`/`good`/`average`, `tier/*` tags) replaced by the numeric `top_percent` rank; index queries use it.
+- Categories are configured only in the YAML file.
+
+### Removed
+- `selection: all|top`, `tiers:`, `advanced.only_top`, `advanced.tier_scope`: use `selection:`.
+- `review.csv`, `dedup_review.csv` and "Needs review" callouts: ambiguous cases are resolved automatically.
+- The SQLite pool and the `creatorvault pool` command; the `pool:` section (the pool is always `<out>/pool`) and `advanced.attachments_dirname`.
+- CLI arguments other than `--config`: the positional export, `--out`, the queue flags, the `shop-catalog` command and its flags. The automatic discovery of the newest `instagram-*.zip`.
+- Separate taxonomy files and the unused taxonomy template; use the config's `taxonomy` block.
+- Unfinished browser draft exporter, its picker asset and Playwright extra. Importing local draft JSON remains supported.
+- Deprecated script wrappers; use `creatorvault build` and `creatorvault shop-catalog`.
+- Unreferenced logo asset.
+
 ## [0.2.0]
 
 ### Added

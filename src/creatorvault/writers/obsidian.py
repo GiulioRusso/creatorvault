@@ -1,9 +1,8 @@
-"""Obsidian vault output: notes, Dataview index, review CSV."""
+"""Obsidian vault output: dated archive notes and the Review.md report."""
 
 from __future__ import annotations
 
-import csv
-import json
+import filecmp
 import re
 import shutil
 import unicodedata
@@ -11,11 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from creatorvault.dedup import pub_ref
-from creatorvault.models import Content, log
+from creatorvault.models import Content
 from creatorvault.tagging.taxonomy import axis_names, axis_values
 
-# Extensions treated as images (videos are archived but not embedded as an
-# image in the note).
+# Extensions treated as images (the queue only takes images).
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
 
 
@@ -37,61 +35,48 @@ def yaml_quote(value: Any) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-MANIFEST = ".creatorvault-manifest.json"
-
-
-def sync_manifest(out_dir: Path, written: list[Path]) -> None:
-    """Deletes files a previous build generated and this one didn't, then
-    records this build's files. Anything else in the vault (your own notes)
-    is never touched."""
-    manifest = out_dir / MANIFEST
-    now = sorted({p.relative_to(out_dir).as_posix() for p in written})
-    if manifest.exists():
-        for rel in set(json.loads(manifest.read_text(encoding="utf-8"))) - set(now):
-            (out_dir / rel).unlink(missing_ok=True)
-    manifest.write_text(json.dumps(now, indent=1) + "\n", encoding="utf-8")
+ARCHIVE = "archive"  # dated notes, one per content; the build owns this folder
+POOL = "pool"  # undated post.md + media, see creatorvault.pool
 
 
 def copy_media(src: Path, dest: Path) -> None:
-    """Copies unless an identical-looking file is already there."""
-    if not dest.exists() or dest.stat().st_size != src.stat().st_size:
+    """Copies unless the existing media bytes are identical."""
+    if not dest.exists() or not filecmp.cmp(src, dest, shallow=False):
         shutil.copy2(src, dest)
+
+
+def fence_for(text: str) -> str:
+    """A code fence longer than any backtick run inside text."""
+    return "`" * max(3, max((len(m[0]) + 1 for m in re.finditer(r"`+", text)), default=3))
 
 
 def note_stem(content: Content) -> str:
     """Date + slug of the first publication: stable as reposts get added."""
     first = content.first
-    return f"{first.timestamp:%Y-%m-%d}-{slugify(first.title)}"
+    prefix = "reel-" if first.content_type == "reels" else ""
+    return f"{first.timestamp:%Y-%m-%d}-{prefix}{slugify(first.title)}"
 
 
-def write_notes(
-    contents: list[Content], out_dir: Path, attachments_name: str, max_hashtags: int = 5
-) -> list[Path]:
-    """Writes one note per content; returns every file written (notes + media)."""
-    notes_dir = out_dir / "posts"
-    att_dir = out_dir / attachments_name
+def write_notes(contents: list[Content], out_dir: Path, slugs: dict[str, str]) -> None:
+    """One dated note per content in <out>/archive. The media stay in the
+    pool (slugs: content id -> pool folder): embedded, never copied twice.
+    Notes from a previous build that are no longer generated are removed."""
+    notes_dir = out_dir / ARCHIVE
     notes_dir.mkdir(parents=True, exist_ok=True)
-    att_dir.mkdir(parents=True, exist_ok=True)
 
-    written: list[Path] = []
+    written: set[Path] = set()
     for content in contents:
         first, best = content.first, content.best
         stem = note_stem(content)
         note_path = notes_dir / f"{stem}.md"
+        folder = f"{POOL}/{slugs[content.id]}"
 
-        # Copy media and build the embeds
         embeds = []
         media = content.media
         for i, src in enumerate(media, 1):
             ext = src.suffix.lower()
-            dest_name = f"{stem}-{i:02d}{ext}" if len(media) > 1 else f"{stem}{ext}"
-            dest = att_dir / dest_name
-            copy_media(src, dest)
-            written.append(dest)
-            if ext in IMAGE_EXT:
-                embeds.append(f"![[{dest_name}]]")
-            else:
-                embeds.append(f"[[{dest_name}]]")
+            target = f"{folder}/{i:02d}{ext}"
+            embeds.append(f"![[{target}]]")
 
         # Frontmatter
         fm: list[str] = ["---"]
@@ -99,10 +84,14 @@ def write_notes(
         fm.append(f"year: {first.timestamp.year}")
         fm.append(f"time: {first.timestamp:%H:%M}")
         fm.append(f"type: {'carousel' if len(media) > 1 else 'single'}")
+        content_types = sorted({p.content_type for p in content.publications})
+        if "reels" in content_types:
+            fm.append(f"content_types: [{', '.join(content_types)}]")
         if best.permalink:
             fm.append(f"permalink: {yaml_quote(best.permalink)}")
-        if content.best_tier:
-            fm.append(f"tier: {content.best_tier}")
+        if content.top_percent is not None:
+            fm.append(f"top_percent: {content.top_percent}")
+        fm.append(f'pool: "[[{folder}/post]]"')
         fm.append(f"status: {content.status}")
         dates = [f"{p.timestamp:%Y-%m-%d}" for p in content.published]
         fm.append(f"times_published: {len(dates)}")
@@ -117,24 +106,20 @@ def write_notes(
             fm.append(f"photo_ids: [{', '.join(yaml_quote(i) for i in content.photo_ids)}]")
         if content.best_engagement is not None:
             fm.append(f"best_engagement: {int(content.best_engagement)}")
-        n_hashtags = len(content.hashtags_original)
-        fm.append(f"hashtags_original_count: {n_hashtags}")
         for metric, value in sorted(best.metrics.items()):
             if metric == "engagement_rate":
                 fm.append(f"{metric}: {value}")
             else:
                 fm.append(f"{metric}: {int(value)}")
 
-        all_tags = ["post"]
+        all_tags = ["post"] if "posts" in content_types else []
+        if "reels" in content_types:
+            all_tags.append("reel")
         for axis, values in content.tags.items():
             for v in values:
                 all_tags.append(f"{axis}/{v}")
-        if content.best_tier:
-            all_tags.append(f"tier/{content.best_tier}")
         if len(dates) > 1:
             all_tags.append("repost/yes")
-        if n_hashtags > max_hashtags:
-            all_tags.append("lint/too-many-hashtags")
         fm.append("tags:")
         for t in all_tags:
             fm.append(f"  - {t}")
@@ -146,28 +131,25 @@ def write_notes(
         # it would otherwise get indexed by Obsidian as real tags (polluting
         # the taxonomy), and this way it's copyable with one click when you
         # want to repost.
-        caption = content.caption.strip() or "(no caption)"
         ready = content.ready_caption or "(no caption)"
-        body += ["", "## Ready to post", "", "```text", ready, "```", ""]
-        body += ["## Original caption", "", "```text", caption, "```", ""]
-        for note in (content.match_note, content.review_note):
-            if note:
-                body += ["> [!warning] Needs review", f"> {note}", ""]
+        fence = fence_for(ready)
+        body += ["", "## Description", "", f"{fence}text", ready, fence, ""]
         body += publications_table(content)
         if best.permalink:
             body += [f"[Open on Instagram]({best.permalink})", ""]
 
         note_path.write_text("\n".join(fm + body), encoding="utf-8")
-        written.append(note_path)
+        written.add(note_path)
 
-    return written
+    for stale in set(notes_dir.glob("*.md")) - written:
+        stale.unlink()
 
 
 def publications_table(content: Content) -> list[str]:
     rows = [
         "## Publications",
         "",
-        "| Date | Source | Link | Reach | Engagement | Rate | Tier |",
+        "| Date | Source | Link | Reach | Engagement | Rate | Top % |",
         "|---|---|---|---|---|---|---|",
     ]
     for p in sorted(content.publications, key=lambda p: p.timestamp):
@@ -183,7 +165,7 @@ def publications_table(content: Content) -> list[str]:
             str(int(m["reach"])) if "reach" in m else "",
             str(int(m["engagement"])) if "engagement" in m else "",
             str(m.get("engagement_rate", "")),
-            p.tier or "",
+            "" if p.top_percent is None else str(p.top_percent),
         ]
         rows.append("| " + " | ".join(cells) + " |")
     return [*rows, ""]
@@ -215,8 +197,8 @@ def drafts_report(contents: list[Content]) -> list[dict[str, Any]]:
     return rows
 
 
-def write_index(out_dir: Path, taxonomy: dict[str, Any]) -> Path:
-    """Creates an index note with ready-to-use Dataview queries."""
+def queries(taxonomy: dict[str, Any]) -> list[str]:
+    """Ready-to-use Dataview queries over the archive and the pool."""
     axes = axis_names(taxonomy)
     primary = axes[0] if axes else "program"
     secondary = axes[-1] if len(axes) > 1 else primary
@@ -226,97 +208,102 @@ def write_index(out_dir: Path, taxonomy: dict[str, Any]) -> Path:
     example_secondary = secondary_vals[0] if secondary_vals else "anecdote"
 
     lines = [
-        "---",
-        "tags:",
-        "  - index",
-        "---",
-        "",
-        "# Post Archive",
+        "## Queries",
         "",
         "> Requires the **Dataview** plugin (Settings -> Community plugins).",
         "",
-        "## Best of each year",
+        "### Best of each year",
+        "",
+        "The top 10%. `top_percent: N` = in the best N% (per year or over the archive,",
+        "as set by `selection.scope`).",
         "",
         "```dataview",
-        "TABLE date, engagement, engagement_rate, tags",
-        'FROM "posts"',
-        'WHERE tier = "top"',
-        "SORT year DESC, engagement DESC",
+        "TABLE date, top_percent, engagement, engagement_rate, tags",
+        f'FROM "{ARCHIVE}"',
+        "WHERE top_percent <= 10",
+        "SORT year DESC, top_percent ASC",
         "```",
         "",
-        f"## What I've already covered, by {primary}",
+        f"### What I've already covered, by {primary}",
         "",
         "```dataview",
         "TABLE length(rows) AS count, max(rows.engagement) AS peak",
-        'FROM "posts"',
+        f'FROM "{ARCHIVE}"',
         "FLATTEN tags AS tag",
         f'WHERE startswith(tag, "{primary}/")',
         "GROUP BY tag",
         "SORT count DESC",
         "```",
         "",
-        "## Content gaps",
+        "### Content gaps",
         "",
         f"What I've covered on `{example_primary}` without ever using the "
         f"`{example_secondary}` angle. Swap the two values to see what's missing.",
         "",
         "```dataview",
         "LIST",
-        'FROM "posts"',
+        f'FROM "{ARCHIVE}"',
         f'WHERE contains(tags, "{primary}/{example_primary}")',
         f'  AND !contains(tags, "{secondary}/{example_secondary}")',
         "```",
         "",
-        "## Ready to publish",
+        "### Ready to publish",
         "",
         "Drafts that never went out, oldest first.",
         "",
         "```dataview",
         "TABLE date, photo_ids, draft_ids",
-        'FROM "posts"',
+        f'FROM "{ARCHIVE}"',
         'WHERE status = "draft"',
         "SORT date ASC",
         "```",
         "",
-        "## Reposts: did they work?",
+        "### Reposts: did they work?",
         "",
         "```dataview",
-        "TABLE times_published, published, best_engagement, tier",
-        'FROM "posts"',
+        "TABLE times_published, published, best_engagement, top_percent",
+        f'FROM "{ARCHIVE}"',
         "WHERE times_published > 1",
         "SORT best_engagement DESC",
         "```",
         "",
-        "## Strong and not posted in 12+ months",
+        "### Strong and not posted in 12+ months",
         "",
         "```dataview",
         "TABLE last_published, best_engagement, times_published",
-        'FROM "posts"',
-        'WHERE tier = "top" AND last_published AND last_published <= date(today) - dur(1 year)',
-        "SORT best_engagement DESC",
+        f'FROM "{ARCHIVE}"',
+        "WHERE top_percent <= 25",
+        "  AND last_published AND last_published <= date(today) - dur(1 year)",
+        "SORT top_percent ASC, best_engagement DESC",
         "LIMIT 25",
         "```",
         "",
-        "## Redundant Meta drafts",
+        "### Redundant Meta drafts",
         "",
-        "Drafts that repeat a published post or another draft: see drafts_report.csv.",
+        "Drafts that repeat a published post or another draft (see Meta drafts above).",
         "",
         "```dataview",
         "TABLE status, draft_ids, last_published",
-        'FROM "posts"',
+        f'FROM "{ARCHIVE}"',
         'WHERE length(draft_ids) > 1 OR status = "published+draft"',
         "SORT file.name ASC",
         "```",
         "",
-        "## Too many hashtags in the original",
-        "",
-        'These would fail as scheduled posts: use the note\'s "Ready to post" caption.',
+        "### Pool: best first",
         "",
         "```dataview",
-        "TABLE hashtags_original_count, date",
-        'FROM "posts"',
-        'WHERE contains(tags, "lint/too-many-hashtags")',
-        "SORT hashtags_original_count DESC",
+        "TABLE content_type, format, top_percent, tags",
+        f'FROM "{POOL}"',
+        'WHERE file.name = "post"',
+        "SORT top_percent ASC",
+        "```",
+        "",
+        "### Pool: untagged",
+        "",
+        "```dataview",
+        "LIST",
+        f'FROM "{POOL}"',
+        'WHERE file.name = "post" AND length(tags) = 0',
         "```",
         "",
         "## Available axes",
@@ -326,22 +313,57 @@ def write_index(out_dir: Path, taxonomy: dict[str, Any]) -> Path:
         vals = ", ".join(f"`#{axis}/{v}`" for v in axis_values(taxonomy[axis]))
         lines.append(f"- **{axis}**: {vals}")
     lines.append("")
-    path = out_dir / "Post Archive.md"
-    path.write_text("\n".join(lines), encoding="utf-8")
-    return path
+    return lines
+
+
+def cell(value: Any) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ")
+
+
+def table(header: list[str], rows: list[list[Any]]) -> list[str]:
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    lines += ["| " + " | ".join(cell(v) for v in row) + " |" for row in rows]
+    return [*lines, ""]
 
 
 def write_review(
-    review: list[dict[str, Any]], out_dir: Path, name: str = "review.csv"
-) -> list[Path]:
-    """Writes the CSV when there are rows; returns the files written."""
-    if not review:
-        return []
-    path = out_dir / name
-    fields = sorted({k for r in review for k in r})
-    with open(path, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
-        w.writerows(review)
-    log(f"[!] {len(review)} row(s) to review by hand: {path}")
-    return [path]
+    out_dir: Path,
+    contents: list[Content],
+    slugs: dict[str, str],
+    summary: list[tuple[str, int]],
+    audit: list[dict[str, Any]],
+    taxonomy: dict[str, Any],
+) -> None:
+    """Review.md: what the run did, what the model decided, what's left to look at."""
+    lines = [
+        "# Review",
+        "",
+        f"Dated notes in `{ARCHIVE}/`, undated reusable posts in `{POOL}/`.",
+        "How this run went and how to rerun it: `run.log` (first lines).",
+        "",
+        "## Summary",
+        "",
+        *table(["", "count"], [[label, value] for label, value in summary]),
+        "## Decisions by the local model",
+        "",
+    ]
+    if audit:
+        lines += table(
+            ["case", "reference", "outcome", "confidence", "reason"],
+            [
+                [r["case"], r["reference"], r["outcome"], r["confidence"], r["reason"]]
+                for r in audit
+            ],
+        )
+    else:
+        lines += ["None: no ambiguous join or duplicate needed the model.", ""]
+    drafts = drafts_report(contents)
+    if drafts:
+        lines += ["## Meta drafts", "", "A draft with `duplicate_of` set is safe to delete.", ""]
+        lines += table(list(drafts[0]), [list(d.values()) for d in drafts])
+    untagged = [c for c in contents if not c.tags]
+    if untagged and taxonomy:
+        lines += ["## Untagged", ""]
+        lines += [f"- [[{POOL}/{slugs[c.id]}/post|{c.title}]]" for c in untagged] + [""]
+    lines += queries(taxonomy)
+    (out_dir / "Review.md").write_text("\n".join(lines), encoding="utf-8")

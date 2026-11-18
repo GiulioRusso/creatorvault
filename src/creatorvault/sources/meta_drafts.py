@@ -33,6 +33,9 @@ def parse_meta_drafts(folder: Path) -> list[Publication]:
         if not draft_id:
             log("[!] Meta draft without an id: skipped.")
             continue
+        content_type = entry.get("content_type", "posts")
+        if content_type not in ("posts", "reels"):
+            raise SystemExit(f"[!] Meta draft {draft_id}: content_type must be posts or reels.")
         try:
             updated = datetime.fromisoformat(str(entry["updated"]))
         except (KeyError, ValueError):
@@ -54,6 +57,7 @@ def parse_meta_drafts(folder: Path) -> list[Publication]:
                 media=media,
                 source=META_DRAFT,
                 draft_id=draft_id,
+                content_type=content_type,
             )
         )
     log(f"[i] Found {len(drafts)} Meta draft(s) in {path}.")

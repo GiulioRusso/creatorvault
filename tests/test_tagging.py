@@ -7,13 +7,11 @@ import socket
 from datetime import UTC, datetime
 
 import pytest
-from harness import FIXTURES, mock_ollama
+from harness import TAXONOMY, mock_ollama
 
 from creatorvault.models import Post
 from creatorvault.tagging import ollama
 from creatorvault.tagging.taxonomy import build_tagging_prompt, response_schema
-
-TAXONOMY = json.loads((FIXTURES / "taxonomy.json").read_text(encoding="utf-8"))
 
 
 def posts() -> list[Post]:

@@ -9,15 +9,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from creatorvault.hashtags import split_caption
+# Everything logged during a run, saved as <out>/run.log by build.
+RUN_LOG: list[str] = []
 
 
 def log(msg: str) -> None:
+    RUN_LOG.append(msg)
     print(msg, file=sys.stderr)
 
-
-# Higher is better; None (tiers skipped) ranks below everything.
-TIER_RANK = {"top": 3, "good": 2, "average": 1, "no-data": 0}
 
 INSTAGRAM = "instagram_export"
 META_DRAFT = "meta_draft"
@@ -34,10 +33,10 @@ class Publication:
     metrics: dict[str, float] = field(default_factory=dict)
     tags: dict[str, list[str]] = field(default_factory=dict)
     permalink: str | None = None
-    tier: str | None = None
-    match_note: str | None = None  # warnings about the join
+    top_percent: int | None = None  # in the top N% of its year; None = no metrics
     source: str = INSTAGRAM
     draft_id: str | None = None
+    content_type: str = "posts"  # posts | reels; determined by export metadata, not file extension
 
     @property
     def is_carousel(self) -> bool:
@@ -66,8 +65,7 @@ class Content:
     publications: list[Publication]
     tags: dict[str, list[str]] = field(default_factory=dict)
     photo_ids: list[str] = field(default_factory=list)
-    review_note: str | None = None
-    ready_caption: str = ""  # caption_body + at most hashtags.max hashtags
+    ready_caption: str = ""  # cleaned caption + at most hashtags.max hashtags
 
     @property
     def published(self) -> list[Publication]:
@@ -99,15 +97,15 @@ class Content:
 
     @property
     def best(self) -> Publication:
-        """Best-performing publication: highest tier, then engagement."""
-        return max(
+        """Best-performing publication: best rank, then engagement."""
+        return min(
             self.publications,
-            key=lambda p: (TIER_RANK.get(p.tier or "", -1), p.metrics.get("engagement", 0)),
+            key=lambda p: (p.top_percent or 101, -p.metrics.get("engagement", 0)),
         )
 
     @property
-    def best_tier(self) -> str | None:
-        return self.best.tier
+    def top_percent(self) -> int | None:
+        return self.best.top_percent
 
     @property
     def best_engagement(self) -> float | None:
@@ -130,17 +128,5 @@ class Content:
         return latest.media if latest else []
 
     @property
-    def caption_body(self) -> str:
-        return split_caption(self.caption)[0]
-
-    @property
-    def hashtags_original(self) -> list[str]:
-        return split_caption(self.caption)[1]
-
-    @property
     def title(self) -> str:
         return caption_title(self.caption, self.first.timestamp)
-
-    @property
-    def match_note(self) -> str | None:
-        return next((p.match_note for p in self.publications if p.match_note), None)

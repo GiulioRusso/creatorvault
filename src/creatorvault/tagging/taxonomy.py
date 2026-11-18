@@ -6,6 +6,41 @@ import re
 from typing import Any
 
 
+def normalize_taxonomy(raw: Any) -> dict[str, Any]:
+    """Expand YAML category lists into the schema used by the tagger.
+
+    Lists allow several labels per category. A mapping with ``values`` and
+    ``multi: false`` can be used when exactly one label at most is wanted.
+    Detailed category mappings are accepted alongside simple lists.
+    """
+    if not isinstance(raw, dict):
+        raise SystemExit("[!] taxonomy must be a mapping of category names to lists.")
+    result = {}
+    for axis, spec in raw.items():
+        if not isinstance(axis, str) or not axis.strip():
+            raise SystemExit("[!] Taxonomy category names must be non-empty strings.")
+        if axis.startswith("_"):
+            result[axis] = spec
+            continue
+        if isinstance(spec, list):
+            spec = {"values": spec, "multi": True}
+        if not isinstance(spec, dict):
+            raise SystemExit(f"[!] taxonomy.{axis} must be a list or a mapping with values.")
+        values = axis_values(spec)
+        if (
+            not isinstance(values, list)
+            or not values
+            or any(not isinstance(v, str) or not v.strip() for v in values)
+        ):
+            raise SystemExit(f"[!] Taxonomy axes without values: {axis} (use non-empty strings).")
+        if "multi" in spec and not isinstance(spec["multi"], bool):
+            raise SystemExit(f"[!] taxonomy.{axis}.multi must be true or false.")
+        result[axis] = {**spec, "values": list(dict.fromkeys(values))}
+    if not axis_names(result):
+        raise SystemExit("[!] Taxonomy has no axes (keys not starting with _).")
+    return result
+
+
 def axis_names(taxonomy: dict[str, Any]) -> list[str]:
     """Axes are the keys that don't start with an underscore."""
     return [k for k in taxonomy if not k.startswith("_")]

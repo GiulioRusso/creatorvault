@@ -12,20 +12,26 @@ def join_posts(
     posts: list[Post], insights: list[dict[str, Any]], tolerance_min: int
 ) -> list[dict[str, Any]]:
     """
-    Matches each insights row to the closest post in time.
-    Ambiguous cases are flagged, not resolved automatically.
+    Matches each insights row to the closest post in time. Returns the rows
+    it couldn't place: the local reviewer resolves them, or they stay unmatched.
     """
     tol = timedelta(minutes=tolerance_min)
     review: list[dict[str, Any]] = []
     used: set[str] = set()
 
-    for rec in insights:
-        candidates = [p for p in posts if abs(p.timestamp - rec["publish_time"]) <= tol]
+    for insight_index, rec in enumerate(insights):
+        candidates = [
+            p
+            for p in posts
+            if abs(p.timestamp - rec["publish_time"]) <= tol
+            and (not rec.get("content_type") or rec["content_type"] == p.content_type)
+        ]
 
         if not candidates:
             review.append(
                 {
                     "issue": "no matching post",
+                    "insight_index": insight_index,
                     "insights_publish_time": rec["publish_time"].isoformat(),
                     "permalink": rec["permalink"] or "",
                     "description": rec["description"][:80],
@@ -54,14 +60,13 @@ def join_posts(
             review.append(
                 {
                     "issue": f"{len(candidates)} posts in the same time window",
+                    "insight_index": insight_index,
                     "insights_publish_time": rec["publish_time"].isoformat(),
                     "permalink": rec["permalink"] or "",
                     "description": rec["description"][:80],
                     "candidates": " | ".join(p.timestamp.isoformat() for p in candidates),
                 }
             )
-            for p in candidates:
-                p.match_note = "ambiguous join: metrics not assigned, see review.csv"
             continue
 
         post = candidates[0]
@@ -69,6 +74,7 @@ def join_posts(
             review.append(
                 {
                     "issue": "post already matched to another row",
+                    "insight_index": insight_index,
                     "insights_publish_time": rec["publish_time"].isoformat(),
                     "permalink": rec["permalink"] or "",
                     "description": rec["description"][:80],
@@ -81,7 +87,7 @@ def join_posts(
         used.add(post.key)
 
     matched = len(used)
-    log(f"[i] Join: {matched}/{len(posts)} post(s) with metrics, {len(review)} row(s) to review.")
+    log(f"[i] Join: {matched}/{len(posts)} post(s) with metrics, {len(review)} ambiguous row(s).")
     return review
 
 
