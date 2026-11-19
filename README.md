@@ -39,7 +39,23 @@ Options that are unknown or were removed fail with a message naming the replacem
 
 ## Vault
 
-One note per **unique content**, even when it went out several times: media, a caption ready to repost with at most 5 hashtags, metrics, its performance rank, semantic tags and every publication. Plus a Dataview index: best of each year, coverage per topic, content gaps, reposts, drafts ready to publish. A note generated from the repo's synthetic fixtures:
+One note per **unique content**, even when it went out several times: media, a caption ready to repost with at most 5 hashtags, metrics, its performance rank, semantic tags and every publication.
+
+### What you get
+
+```
+vault/                             ← rebuilt in place (see advanced.timestamped_out)
+├── Review.md                      ← start here: summary, model decisions, drafts, untagged, Dataview queries
+├── run.log                        ← this run's log; first lines: date and the command to rerun it
+├── archive/2024-01-26-first-line-of-the-caption.md   ← dated, metrics, publications
+└── pool/first-line-of-the-caption/{post.md,01.jpg}   ← undated, see Content pool
+```
+
+Nothing else is written in the vault: no database, CSV or cache. The extracted export is temporary; the model's answers (tags, review decisions) are cached in `.creatorvault-cache/` next to the vault, so a rerun only asks about new captions. `archive/` belongs to the build: notes no longer generated are removed there. Your own notes elsewhere in the vault are never touched.
+
+Prepared descriptions sit in fenced blocks, so their hashtags don't pollute Obsidian's tag index, and they're one click to copy. Every taxonomy axis becomes a real tag (`#program/apollo`).
+
+A dated note in `archive/`, generated from the repo's synthetic fixtures:
 
 ```yaml
 ---
@@ -49,6 +65,7 @@ time: 17:00
 type: single
 permalink: "https://example.com/p/p4"
 top_percent: 86
+pool: "[[pool/lequipaggio-e-tornato-a-casa/post]]"
 status: published
 times_published: 1
 first_published: 2024-11-20
@@ -85,7 +102,7 @@ tags:
 3. To tag captions, start Ollama and pull the model once: `ollama serve`, `ollama pull llama3.2:3b`. Without Ollama the build still runs, without tags (unless `tagging.required: true`).
 4. `creatorvault build`, then open `vault/` in Obsidian (install the **Dataview** community plugin) and start from `Review.md`.
 
-Rerun the same command after every new export: the vault is rebuilt in place and only files the previous build generated are replaced or removed.
+Rerun the same command after every new export: the vault is rebuilt in place. The exact command is also on the second line of `run.log`.
 
 ### Choosing what to keep: one percentile
 
@@ -258,7 +275,7 @@ flowchart LR
     M --> S["Ready caption, ≤ 5 hashtags"]
     S --> U["pool/: <slug>/post.md + media"]
     S --> N["archive/: dated notes, media embedded from pool/"]
-    S --> R["Review.md + run.log"]
+    S --> V["Review.md + run.log"]
     S --> T["Queue"]
 ```
 
@@ -292,26 +309,13 @@ The merged note is named after the **first** publication (so it doesn't move bet
 
 **Tagging.** Captions (hashtags stripped) are sent in batches to Ollama with a prompt built from your taxonomy. For local models the request includes a JSON schema generated from the taxonomy, so the model can only answer with allowed values. Answers are then validated again, unknown values are dropped, and a malformed reply is retried once. Tags are cached by caption hash in `.creatorvault-cache/tags_cache-<settings-hash>.json` (next to the vault, never inside it), so reruns only tag new or edited captions.
 
-### Output
+### Limitations
 
-```
-vault/                             ← rebuilt in place (see advanced.timestamped_out)
-├── Review.md                      ← start here: summary, model decisions, drafts, untagged, Dataview queries
-├── run.log                        ← this run's log; first lines: date and the command to rerun it
-├── archive/2024-01-26-first-line-of-the-caption.md   ← dated, metrics, publications
-└── pool/first-line-of-the-caption/{post.md,01.jpg}   ← undated, see Content pool
-```
-
-Nothing else is written in the vault: no database, CSV or cache. The extracted export is temporary; the model's answers (tags, review decisions) are cached in `.creatorvault-cache/` next to the vault, so a rerun only asks about new captions. `archive/` belongs to the build: notes no longer generated are removed there. Your own notes elsewhere in the vault are never touched.
-
-Prepared descriptions sit in fenced blocks, so their hashtags don't pollute Obsidian's tag index, and they're one click to copy. Every taxonomy axis becomes a real tag (`#program/apollo`).
-
-**Limitations.**
 - Model confidence is self-reported, not a calibrated probability. NASA-code conflicts and `split` overrides can't be overridden by the model.
 - Image matching uses the first image only: carousels sharing an opening image can merge; use a `split` override.
 - LLM tags depend on the model; small models make mistakes. Tags use the caption text, not the image.
 - `content_types` reads numbered `posts_*.json` and `reels.json`; stories, archived posts and the newer `posts.json` schema are not imported.
-- Generated filenames are reserved: keep your own notes at different paths.
+- `archive/` belongs to the build: keep your own notes elsewhere in the vault (or in `pool/` with `origin: manual`).
 
 ---
 
@@ -361,7 +365,7 @@ Known limitation: it hasn't been run against a real shop yet. The parsing follow
 
 ### `content_types`
 
-`[posts]` (default), `[reels]` or `[posts, reels]`. The type comes from Instagram's metadata, not the file extension: a feed video is a post. Reel notes get `content_types: [reels]` and a `reel` tag. Drafts may set `"content_type": "reels"`; untyped drafts are posts.
+`[posts]` (default), `[reels]` or `[posts, reels]`. For separate post and reel vaults, use two configs that differ only in `content_types` and `paths.out` (e.g. `config/config.yaml` → `vault-posts`, `config/config-reels.yaml` → `vault-reels`) and run `build` once per config; both share `.creatorvault-cache/`. The type comes from Instagram's metadata, not the file extension: a feed video is a post. Reel notes get `content_types: [reels]` and a `reel` tag. Drafts may set `"content_type": "reels"`; untyped drafts are posts.
 
 ### `selection`
 
@@ -388,7 +392,7 @@ Known limitation: it hasn't been run against a real shop yet. The parsing follow
 | Key | Default | Meaning |
 |---|---|---|
 | `tagging.enabled` | `true` | `false` skips tagging. |
-| `tagging.model` | `llama3.2:3b` | Any pulled Ollama model, or a `-cloud` tag (needs `ollama signin`). Prefer non-reasoning models: reasoning ones are slower and can time out. |
+| `tagging.model` | `llama3.2:3b` | Any pulled Ollama model, or a `-cloud` tag (needs `ollama signin`). Reasoning models run with thinking off; `qwen3:8b` is a good pick on a 16 GB machine (about 1–2 minutes per batch). |
 | `tagging.required` | `false` | Stop when tagging or the local review can't run, instead of warning. |
 | `review.enabled` | `false` (`true` in the template) | Let a local model settle borderline duplicates and joins. |
 | `review.model` | `tagging.model` | Must be local: cloud models and non-loopback `OLLAMA_HOST` are rejected. |
