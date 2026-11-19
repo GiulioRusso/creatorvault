@@ -102,3 +102,107 @@ def test_build_with_drafts(tmp_path):
     mercury = (vault / "archive" / f"{report['1002']['content']}.md").read_text()
     assert 'draft_ids: ["1002", "1003"]' in mercury and "times_published: 0" in mercury
     assert len(list((vault / "archive").glob("*.md"))) == 9 + 2
+
+
+def write_export(path, drafts, files=("2001-01.jpg",), extra=()):
+    """A zip like the browser script downloads: flat drafts.json + media."""
+    import zipfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("drafts.json", json.dumps(drafts))
+        for name in files:
+            zf.writestr(name, b"fake")
+        for name in extra:
+            zf.writestr(name, b"junk")
+    return path
+
+
+EXPORT = [
+    {
+        "id": "2001",
+        "caption": "Feb. 20, 1962: John Glenn before Friendship 7.",
+        "media": ["2001-01.jpg"],
+        "updated": "2024-12-05T10:00:00",
+        "content_type": "posts",
+    },
+    {"id": "1004", "caption": "Pioneer 10 plaque, 1972 (edited)", "updated": "2025-08-10"},
+]
+
+
+def test_parse_export_zips(tmp_path, capsys):
+    folder = write_drafts(tmp_path / "d")
+    write_export(
+        folder / "meta-drafts-20261119-1000.zip",
+        EXPORT,
+        extra=("__MACOSX/._2001-01.jpg", ".DS_Store"),
+    )
+    work = tmp_path / "work"
+    drafts = {d.draft_id: d for d in parse_meta_drafts(folder, work)}
+    assert sorted(drafts) == ["1001", "1002", "1003", "1004", "2001"]
+    # the zip's media are extracted into workdir, junk entries are skipped
+    glenn = drafts["2001"].media[0]
+    assert glenn.is_file() and work in glenn.parents
+    assert not list(work.rglob(".DS_Store")) and not list(work.rglob("__MACOSX"))
+    # the same draft in drafts.json and in a zip: the latest `updated` wins
+    assert drafts["1004"].caption.endswith("(edited)")
+    assert "drafts.json, meta-drafts-20261119-1000.zip" in capsys.readouterr().err
+
+
+def test_parse_export_zip_without_workdir(tmp_path):
+    folder = tmp_path / "d"
+    write_export(folder / "meta-drafts-1.zip", EXPORT[:1])
+    [draft] = parse_meta_drafts(folder)
+    assert draft.media[0].is_file()
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [(b"not a zip", "not a readable ZIP"), (None, "has no drafts.json")],
+)
+def test_parse_export_zip_errors(tmp_path, content, message):
+    import zipfile
+
+    folder = tmp_path / "d"
+    folder.mkdir()
+    if content is None:
+        with zipfile.ZipFile(folder / "other.zip", "w") as zf:
+            zf.writestr("photo.jpg", b"fake")
+    else:
+        (folder / "broken.zip").write_bytes(content)
+    with pytest.raises(SystemExit, match=message):
+        parse_meta_drafts(folder, tmp_path / "work")
+
+
+def test_build_with_export_zip(tmp_path):
+    path = write_config("no_tags", tmp_path)
+    cfg = yaml.safe_load(path.read_text())
+    folder = tmp_path / "drafts"
+    write_export(folder / "meta-drafts-20261119-1000.zip", EXPORT[:1])
+    cfg["paths"]["meta_drafts"] = str(folder)
+    cfg["selection"]["top_percentile"] = 100
+    path.write_text(yaml.safe_dump(cfg))
+    cli.main(["build", "--config", str(path)])
+
+    pool = tmp_path / "vault" / "pool"
+    [post] = [p for p in pool.glob("*/post.md") if "John Glenn" in p.read_text()]
+    assert (post.parent / "01.jpg").read_bytes() == b"fake"
+
+
+def test_doctor_counts_export_zips(tmp_path, capsys):
+    path = write_config("no_tags", tmp_path)
+    cfg = yaml.safe_load(path.read_text())
+    folder = write_drafts(tmp_path / "drafts")
+    write_export(folder / "meta-drafts-1.zip", EXPORT)
+    cfg["paths"]["meta_drafts"] = str(folder)
+    path.write_text(yaml.safe_dump(cfg))
+    cli.doctor(cli.argparse.Namespace(config=path))
+    out = capsys.readouterr().out
+    assert "5 draft(s) from drafts.json, meta-drafts-1.zip" in out
+
+
+def test_drafts_script(capsys):
+    cli.main(["drafts-script"])
+    script = capsys.readouterr().out
+    assert script.startswith("/*") and "draft_posts" in script
+    assert "drafts.json" in script and "content_type" in script

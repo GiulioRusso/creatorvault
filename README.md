@@ -24,13 +24,14 @@ python3 -m venv .venv
 .venv/bin/creatorvault init          # writes config/config.yaml; refuses to overwrite
 ```
 
-**The config file is the only entry point.** Every option, for every tool, lives in `config/config.yaml`; commands take nothing but `--config` (default `config/config.yaml`):
+**The config file is the only entry point.** Every option, for every tool, lives in `config/config.yaml`; commands take nothing but `--config` (default `config/config.yaml`); `drafts-script` takes nothing at all:
 
 ```bash
 creatorvault doctor  --config config/config.yaml   # PASS/WARN/FAIL for each input
 creatorvault build   --config config/config.yaml   # vault: archive + pool
 creatorvault queue   --config config/config.yaml   # next posting slots
 creatorvault catalog --config config/config.yaml   # shop -> Meta catalog CSV
+creatorvault drafts-script | pbcopy                # browser script: Business Suite drafts -> zip
 ```
 
 Options that are unknown or were removed fail with a message naming the replacement, so a typo never silently falls back to a default. Relative paths resolve from the folder you run the command in. [config/example.yaml](config/example.yaml) is a shareable starting point; the personal `config/config.yaml` is ignored by Git. Commands below use `creatorvault` for brevity: prefix it with `.venv/bin/` or activate the environment.
@@ -173,7 +174,15 @@ The only required column is the publish time. Several header spellings (English 
 
 #### 3. Meta drafts (optional)
 
-CreatorVault imports Business Suite drafts from local files; it does not currently extract them from Meta. Collect them separately into `data/meta-drafts/drafts.json`, with the images in the same folder:
+Business Suite has no export for drafts, so CreatorVault ships a small browser script that does it:
+
+1. In Business Suite open **Content → Posts & reels → Drafts**, set the date filter, and scroll the list to the bottom (rows only load while you scroll).
+2. Copy the script: `creatorvault drafts-script | pbcopy` (macOS; elsewhere, copy what it prints).
+3. Open the Chrome console (`Cmd+Option+J` / `Ctrl+Shift+J`; the first time Chrome asks you to type `allow pasting`), paste and press Enter.
+
+It opens each loaded draft's editor in a hidden frame (nothing is saved), reads the full caption and the full-size media, and downloads one `meta-drafts-YYYYMMDD-HHMM.zip`. Put the zip, as downloaded, in `data/meta-drafts/` (`paths.meta_drafts`) and run `creatorvault build`. Settings at the top of the script: `periods` (keep only drafts created in date ranges), `limit` (e.g. `3` for a first test) and `dryRun` (list in the console, no download). The script relies on Business Suite's page structure and may need an update when Meta changes it.
+
+The folder can hold several zips (one per period, or overlapping exports) and a hand-made `drafts.json` with the images next to it, in the same format as the one inside the zips:
 
 ```json
 [
@@ -187,12 +196,14 @@ CreatorVault imports Business Suite drafts from local files; it does not current
 ]
 ```
 
+The same draft id in more than one file counts once: the entry with the latest `updated` wins.
+
 | Field | Required | Meaning |
 |---|---|---|
 | `id` | yes | Draft id from Business Suite. Entries without one are skipped. |
 | `updated` | yes | Last edit, `YYYY-MM-DD` (or a full ISO timestamp). Used as the draft's date. |
 | `caption` | no | Draft text. |
-| `media` | no | Filenames next to `drafts.json`. A draft without an image still gets a note, without an embed. |
+| `media` | no | Filenames next to `drafts.json` (or inside the same zip). A draft without an image still gets a note, without an embed. |
 | `platforms` | no | Informational. |
 | `content_type` | no | `posts` (default) or `reels`; used by `content_types` selection. |
 
@@ -359,7 +370,7 @@ Known limitation: it hasn't been run against a real shop yet. The parsing follow
 |---|---|---|
 | `ig_export` | **required** | Instagram export: a `.zip` as downloaded, a list of ZIP parts, or an extracted folder. |
 | `insights_dir` | `data/insights` | Insights files (`.csv`, `.tsv`, `.xlsx`, `.xlsm`). Missing or empty = no metrics. |
-| `meta_drafts` | `data/meta-drafts` | Folder with `drafts.json` and the draft images. Used only if it exists. |
+| `meta_drafts` | `data/meta-drafts` | Folder with the draft exports (`*.zip` from `creatorvault drafts-script`) and/or `drafts.json` with the draft images. Used only if it exists. |
 | `out` | `vault` | Output vault. |
 | `cache` | `.creatorvault-cache` next to `out` | Tag and review caches (model answers). Must be outside `out`; shared by configs in the same folder. |
 

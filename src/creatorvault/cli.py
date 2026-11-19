@@ -1,4 +1,4 @@
-"""Command-line entry point: init, doctor, build, queue, catalog.
+"""Command-line entry point: init, doctor, build, queue, catalog, drafts-script.
 
 Every option lives in the config file; the only flag is --config."""
 
@@ -39,7 +39,7 @@ from creatorvault.sources.instagram import (
     parse_ig_export,
     prepare_export,
 )
-from creatorvault.sources.meta_drafts import parse_meta_drafts
+from creatorvault.sources.meta_drafts import DRAFTS_JSON, EXPORT_ZIPS, parse_meta_drafts
 from creatorvault.tagging import ollama
 from creatorvault.tagging.taxonomy import axis_names
 from creatorvault.writers.obsidian import POOL, write_notes, write_review
@@ -181,7 +181,9 @@ def collect(s: Settings, workdir: Path) -> Archive:
     assign_ranks(posts, s.selection.metric, s.selection.scope)
 
     # 3. Meta drafts (no metrics) + repost detection across everything
-    drafts = [d for d in parse_meta_drafts(s.meta_drafts) if d.content_type in s.content_types]
+    drafts = [
+        d for d in parse_meta_drafts(s.meta_drafts, workdir) if d.content_type in s.content_types
+    ]
     contents, borderline = dedup(posts + drafts, s.dedup)
     if reviewer is not None and borderline:
         contents = review_duplicates(contents, borderline, reviewer, s.dedup)
@@ -281,6 +283,24 @@ def queue(s: Settings) -> None:
 
 
 # --------------------------------------------------------------------------
+# drafts-script
+# --------------------------------------------------------------------------
+
+DRAFTS_SCRIPT = "meta_drafts_export.js"
+
+
+def drafts_script() -> None:
+    """Prints the browser script that exports Business Suite drafts."""
+    script = (files("creatorvault") / "templates" / DRAFTS_SCRIPT).read_text(encoding="utf-8")
+    sys.stdout.write(script)
+    if sys.stdout.isatty():
+        log(
+            "\n[i] Paste it in the Chrome console on Business Suite > Drafts "
+            "(tip: `creatorvault drafts-script | pbcopy` copies it on macOS)."
+        )
+
+
+# --------------------------------------------------------------------------
 # catalog
 # --------------------------------------------------------------------------
 
@@ -355,9 +375,15 @@ def check_insights(s: Settings) -> str:
 
 
 def check_drafts(s: Settings) -> str:
-    if not (s.meta_drafts / "drafts.json").exists():
-        return f"no {s.meta_drafts / 'drafts.json'} (optional)"
-    return f"{len(parse_meta_drafts(s.meta_drafts))} draft(s)"
+    folder = s.meta_drafts
+    files = [
+        f.name for f in [folder / DRAFTS_JSON, *sorted(folder.glob(EXPORT_ZIPS))] if f.is_file()
+    ]
+    if not files:
+        return f"nothing in {folder} (optional)"
+    with tempfile.TemporaryDirectory(prefix="creatorvault-") as tmp:
+        n = len(parse_meta_drafts(folder, Path(tmp)))
+    return f"{n} draft(s) from {', '.join(files)}"
 
 
 def check_timezone(s: Settings) -> str:
@@ -458,6 +484,10 @@ def main(argv: list[str] | None = None) -> None:
             default=DEFAULT_CONFIG,
             help=f"YAML config file (default: {DEFAULT_CONFIG})",
         )
+    sub.add_parser(
+        "drafts-script",
+        help="print the browser script that exports Business Suite drafts into paths.meta_drafts",
+    )
     args = ap.parse_args(sys.argv[1:] if argv is None else argv)
 
     if args.command == "init":
@@ -469,5 +499,7 @@ def main(argv: list[str] | None = None) -> None:
         queue(settings_for(args))
     elif args.command == "catalog":
         catalog(load_config(args.config))
+    elif args.command == "drafts-script":
+        drafts_script()
     else:
         build(settings_for(args), args.config)
