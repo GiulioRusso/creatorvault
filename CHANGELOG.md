@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- `creatorvault drafts-script`: prints a browser script that exports Meta Business Suite drafts (full captions, full-size media) into a `meta-drafts-*.zip`. Zips dropped in `paths.meta_drafts` are read by `build`, `queue` and `doctor` next to `drafts.json`; the same draft in several files counts once (latest `updated` wins).
 - Local LLM review of ambiguous insight joins and duplicate candidates, with validated decisions, caches and conservative fallbacks: nothing is left for manual review. Decisions are listed in `Review.md`.
 - Undated content pool in `<out>/pool/`: one `<slug>/post.md` + media folder per selected content, with the prepared description, tags and rank, no publication dates. Hand-written pool posts (`origin: manual`) are never overwritten.
 - `Review.md` (summary, model decisions, Meta drafts, untagged contents, Dataview queries) and `run.log` (with the command to rerun) in every vault.
