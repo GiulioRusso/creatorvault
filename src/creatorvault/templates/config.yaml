@@ -28,6 +28,9 @@ dedup:
   enabled: true
   caption_maybe: 0.70             # Lowest allowed: 0.60.
   caption_same: 0.85
+  # Codes you quote in captions (stock/catalogue/photo IDs): same code = same
+  # content, different codes never merge. Regexes; none by default.
+  # photo_id_patterns: ['IMG-\d{4}', 'SKU\d{5}']
 
 tagging:
   enabled: true                    # Categorize captions with Ollama.
@@ -41,14 +44,13 @@ review:
 # Name a category and list its labels. Lists allow multiple labels;
 # use {values: [...], multi: false} for one label.
 taxonomy:
-  program: [mercury, gemini, apollo, skylab, shuttle, iss, robotic-probes]
-  subject: [astronauts, rockets, launch, moon, earth, engineering, life-aboard]
+  topic: [recipes, travel, behind-the-scenes, tips, products]
+  format: {values: [photo, carousel, video, quote], multi: false}
 
 hashtags:
-  strategy: pool                   # pool, fixed, keep_original or taxonomy.
+  strategy: pool                   # pool, fixed, keep_original (default) or taxonomy.
   max: 5
-  pool: [space, spacehistory, spaceexploration, vintagespace, spacerace,
-         spaceage, historyofspace, history, science]
+  pool: [yourniche, yourtopic, yourcity, yourbrand, community, tips, inspiration]
 
 
 # `creatorvault queue`: the next posting slots, as images + captions.

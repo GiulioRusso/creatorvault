@@ -1,8 +1,8 @@
 """Repost detection: groups publications of the same content into one Content.
 
 Signals, strongest first, combined with a union-find:
-1. NASA photo code in the caption (same code = same content; two different
-   codes = never the same content, whatever else matches);
+1. photo code in the caption, from dedup.photo_id_patterns (same code = same
+   content; two different codes = never the same content, whatever else matches);
 2. dHash of the first image (needs the optional Pillow dependency);
 3. normalized caption similarity, SequenceMatcher ratio (>= caption_same merges; between
    caption_maybe and caption_same is a candidate for the local reviewer,
@@ -26,13 +26,6 @@ import yaml
 
 from creatorvault.models import Content, Publication, log
 
-DEFAULT_PHOTO_ID_PATTERNS = [
-    r"AS\d{2}-\d{2,3}-\d{4,5}",
-    r"S\d{2}-\d{4,5}(?:_G\d{2}(?:-S)?)?",
-    r"GT\d+-\d+-\d+",
-    r"STS\d{2,3}-\d+-\d+",
-    r"ISS\d{3}-E-\d+",
-]
 # Whole lines (case-insensitive) dropped before comparing captions.
 DEFAULT_BOILERPLATE = [r"check (the )?link in (my |our )?bio.*", r"[.\s]+"]
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp"}
@@ -51,7 +44,8 @@ class DedupConfig:
     image_distance: int = 6
     caption_same: float = 0.85
     caption_maybe: float = 0.70
-    photo_id_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_PHOTO_ID_PATTERNS))
+    # Regexes for photo/catalogue codes quoted in captions; none by default.
+    photo_id_patterns: list[str] = field(default_factory=list)
     boilerplate: list[str] = field(default_factory=lambda: list(DEFAULT_BOILERPLATE))
     overrides: Path = Path("config/dedup_overrides.yaml")
 
@@ -83,7 +77,7 @@ class DedupConfig:
 
 
 def photo_ids(text: str, patterns: list[str]) -> list[str]:
-    """NASA photo codes, uppercased, frame zeros dropped (AS14-66-09302 = AS14-66-9302)."""
+    """Photo codes, uppercased, leading zeros of numbers dropped (AB-09302 = AB-9302)."""
     found: list[str] = []
     for pattern in patterns:
         for m in re.finditer(rf"(?<![A-Z0-9]){pattern}(?![0-9])", text, re.IGNORECASE):

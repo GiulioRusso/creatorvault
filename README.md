@@ -54,9 +54,9 @@ vault/                             ← rebuilt in place (see advanced.timestampe
 
 Nothing else is written in the vault: no database, CSV or cache. The extracted export is temporary; the model's answers (tags, review decisions) are cached in `.creatorvault-cache/` next to the vault, so a rerun only asks about new captions. `archive/` belongs to the build: notes no longer generated are removed there. Your own notes elsewhere in the vault are never touched.
 
-Prepared descriptions sit in fenced blocks, so their hashtags don't pollute Obsidian's tag index, and they're one click to copy. Every taxonomy axis becomes a real tag (`#program/apollo`).
+Prepared descriptions sit in fenced blocks, so their hashtags don't pollute Obsidian's tag index, and they're one click to copy. Every taxonomy axis becomes a real tag (`#topic/recipes`).
 
-A dated note in `archive/`, generated from the repo's synthetic fixtures:
+A dated note in `archive/` (frontmatter and title):
 
 ```yaml
 ---
@@ -64,25 +64,26 @@ date: 2024-11-20
 year: 2024
 time: 17:00
 type: single
-permalink: "https://example.com/p/p4"
-top_percent: 86
-pool: "[[pool/lequipaggio-e-tornato-a-casa/post]]"
+permalink: "https://www.instagram.com/p/XXXX/"
+top_percent: 12
+pool: "[[pool/our-new-autumn-menu-is-here/post]]"
 status: published
-times_published: 1
-first_published: 2024-11-20
+times_published: 2
+first_published: 2023-10-02
 last_published: 2024-11-20
-published: [2024-11-20]
-best_engagement: 167
-engagement: 167
-engagement_rate: 3.34
-reach: 5000
+published: [2023-10-02, 2024-11-20]
+best_engagement: 1670
+engagement: 1670
+engagement_rate: 6.8
+reach: 24500
 tags:
   - post
-  - program/apollo
-  - angle/quote
+  - topic/recipes
+  - format/photo
+  - repost/yes
 ---
 
-# L'equipaggio è tornato a casa 🚀
+# Our new autumn menu is here
 ```
 
 ### Quickstart
@@ -120,7 +121,7 @@ Rerun the same command after every new export: the vault is rebuilt in place. Th
 
 Duplicates and ambiguous insight joins are settled automatically, so the vault holds unique posts with nothing for you to check:
 
-- **Clear cases** follow rules: same NASA photo code, same image, or caption similarity ≥ `dedup.caption_same` merge; two different photo codes never merge.
+- **Clear cases** follow rules: same photo code (if you set `dedup.photo_id_patterns`), same image, or caption similarity ≥ `dedup.caption_same` merge; two different photo codes never merge.
 - **Borderline cases** (similarity between `caption_maybe` and `caption_same`, or several posts in an insights row's time window) go to the **local model** when `review.enabled: true`. It applies a decision only at `review.min_confidence` or above.
 - **Otherwise** the conservative outcome applies: the two contents stay separate, the metrics stay unassigned. If Ollama is unavailable, the build warns and does the same (or stops, with `tagging.required: true`).
 
@@ -188,7 +189,7 @@ The folder can hold several zips (one per period, or overlapping exports) and a 
 [
   {
     "id": "531138529578816",
-    "caption": "Jul. 20, 1969: ...",
+    "caption": "Our new autumn menu is here ...",
     "media": ["531138529578816.jpg"],
     "updated": "2024-08-22",
     "platforms": ["facebook", "instagram"]
@@ -216,11 +217,11 @@ Every build writes `<out>/pool/`, an **undated** copy of the selected contents: 
 
 ```
 vault/pool/
-├── jul-20-1969-buzz-aldrins-bootprint/
+├── our-new-autumn-menu-is-here/
 │   ├── post.md
 │   ├── 01.jpg
 │   └── 02.jpg
-└── voyager-1-golden-record/
+└── three-tips-for-a-crispier-crust/
     ├── post.md
     └── 01.jpg
 ```
@@ -234,11 +235,11 @@ format: carousel
 media: [01.jpg, 02.jpg]
 top_percent: 12
 tags:
-  - program/apollo
-  - subject/lunar-surface
+  - topic/recipes
+  - format/carousel
 ---
 
-# Jul. 20, 1969: Buzz Aldrin's bootprint
+# Our new autumn menu is here
 
 ![](01.jpg)
 ![](02.jpg)
@@ -254,20 +255,34 @@ To add **new** posts by hand (or with an assistant), create a folder in the same
 
 ### Queue
 
+**What it's for:** deciding what to post next without picking by hand. `creatorvault queue` reads your archive and prepares the next few posts, each with a date, its image and its ready caption, so you only have to upload them to Buffer or Business Suite. Nothing is published for you.
+
 ```bash
 creatorvault queue --config config/config.yaml
 ```
 
-Reads the `queue:` section (`next`, `start`, `days`, `time`, `min_repost_months`, `out`), runs the same pipeline as `build` (using the caches), then picks never-published drafts first (oldest first), then published contents not out for `min_repost_months`, best `top_percent` first, avoiding two in a row with the same value on the first taxonomy axis. Contents without an image are skipped. It replaces the previous queue's files in `queue/`:
+**How it picks**, in this order:
+
+1. **Drafts never published**, oldest first.
+2. **Old posts worth reposting**: published, not out for at least `min_repost_months` (12), best `top_percent` first.
+3. Never two in a row with the same value on the first taxonomy axis (e.g. not two `topic/recipes` back to back).
+
+Contents without an image are skipped.
+
+**When:** from `start` (default: tomorrow), only on `days`, at `time`. With `next: 3`, `days: [mon, thu]` and `start: 2026-12-01` (a Monday), the slots are Mon 1, Thu 4 and Mon 8 December at 19:30:
 
 ```
 queue/
-├── 01-2026-11-30-first-line-of-the-caption.jpg
-├── 01-2026-11-30-first-line-of-the-caption.txt   ← ready caption, ≤ 5 hashtags
-└── queue.csv                                      ← date, time, image, caption, note
+├── 01-2026-12-01-our-new-autumn-menu-is-here.jpg
+├── 01-2026-12-01-our-new-autumn-menu-is-here.txt   ← ready caption, ≤ 5 hashtags
+├── 02-2026-12-04-three-tips-for-a-crispier-crust.jpg
+├── 02-2026-12-04-three-tips-for-a-crispier-crust.txt
+├── 03-2026-12-08-....jpg
+├── 03-2026-12-08-....txt
+└── queue.csv                                       ← date, time, image, caption, note
 ```
 
-Nothing is published: upload the files to Buffer or Business Suite yourself.
+Each run replaces the previous `queue/` files. Options are in the `queue:` section (see [the reference](#queue-1)).
 
 ### How it works
 
@@ -294,9 +309,9 @@ flowchart LR
 
 **Deduplication.** The same content often goes out several times with a slightly different caption. Publications are grouped with three signals, strongest first:
 
-1. **NASA photo code** in the caption (`AS11-40-5903`, `S69-31739`, `GT4-...`, `STS...`, `ISS...-E-...`; the regexes are configurable). Same code = same content, zero-padding ignored (`AS14-66-09302` = `AS14-66-9302`). Two *different* codes are never merged, however similar the captions are.
+1. **Photo code** in the caption, if you quote one (a stock, archive or catalogue ID): set the regexes in `dedup.photo_id_patterns`, e.g. `['IMG-\d{4}']`. Same code = same content, leading zeros ignored (`IMG-0042` = `IMG-42`). Two *different* codes are never merged, however similar the captions are. Off by default.
 2. **Image fingerprint**: a 64-bit dHash of the first image, matched within `dedup.image_distance` bits. Needs the `dedup` extra (Pillow); without it this signal is skipped with a warning. Videos are skipped.
-3. **Caption similarity**: `SequenceMatcher` ratio of the captions after dropping hashtags, mentions, URLs, emoji, punctuation and boilerplate lines (`check link in bio...`, lines of dots). ≥ `caption_same` (0.85) merges; between `caption_maybe` (0.70) and 0.85 goes to the local model, and stays separate without one. Calibrated on a real 2k-post archive, using same/different NASA codes as ground truth: at 0.85 no false merge, while below 0.60 any two captions on the same topic look alike (so it's the minimum). Pairs sharing under 30% of their words are skipped, and only captions mentioning the same first year (or none) are compared, which keeps a 2k-post archive to seconds.
+3. **Caption similarity**: `SequenceMatcher` ratio of the captions after dropping hashtags, mentions, URLs, emoji, punctuation and boilerplate lines (`check link in bio...`, lines of dots). ≥ `caption_same` (0.85) merges; between `caption_maybe` (0.70) and 0.85 goes to the local model, and stays separate without one. Calibrated on a real 2k-post archive, using same/different photo codes as ground truth: at 0.85 no false merge, while below 0.60 any two captions on the same topic look alike (so it's the minimum). Pairs sharing under 30% of their words are skipped, and only captions mentioning the same first year (or none) are compared, which keeps a 2k-post archive to seconds.
 
 Optional explicit overrides in `config/dedup_overrides.yaml` take precedence over the local model and are read on every build. Each entry is a permalink, a Meta draft id, or a date/timestamp prefix (UTC, as in the note filenames):
 
@@ -313,16 +328,16 @@ The merged note is named after the **first** publication (so it doesn't move bet
 
 | Strategy | Hashtags used |
 |---|---|
-| `fixed` (default) | `hashtags.fixed` |
-| `keep_original` | the first `max` of the post's own hashtags |
+| `keep_original` (default) | the first `max` of the post's own hashtags |
+| `fixed` | `hashtags.fixed` |
 | `pool` | `max` unique hashtags sampled from `hashtags.pool`, ignoring the original ones; stable for the same caption |
-| `taxonomy` | `hashtags.taxonomy` mapped from the post's tags (`program/apollo: "#apollo"`), topped up with `fixed` |
+| `taxonomy` | `hashtags.taxonomy` mapped from the post's tags (`topic/recipes: "#recipes"`), topped up with `fixed` |
 
 **Tagging.** Captions (hashtags stripped) are sent in batches to Ollama with a prompt built from your taxonomy. For local models the request includes a JSON schema generated from the taxonomy, so the model can only answer with allowed values. Answers are then validated again, unknown values are dropped, and a malformed reply is retried once. Tags are cached by caption hash in `.creatorvault-cache/tags_cache-<settings-hash>.json` (next to the vault, never inside it), so reruns only tag new or edited captions.
 
 ### Limitations
 
-- Model confidence is self-reported, not a calibrated probability. NASA-code conflicts and `split` overrides can't be overridden by the model.
+- Model confidence is self-reported, not a calibrated probability. Photo-code conflicts and `split` overrides can't be overridden by the model.
 - Image matching uses the first image only: carousels sharing an opening image can merge; use a `split` override.
 - LLM tags depend on the model; small models make mistakes. Tags use the caption text, not the image.
 - `content_types` reads numbered `posts_*.json` and `reels.json`; stories, archived posts and the newer `posts.json` schema are not imported.
@@ -394,7 +409,7 @@ Known limitation: it hasn't been run against a real shop yet. The parsing follow
 | `caption_same` | `0.85` | Caption similarity (0–1, inclusive) that merges automatically. |
 | `caption_maybe` | `0.70` | From here up to `caption_same`: the local model decides; kept separate without one. Minimum `0.60`. |
 | `image_distance` | `6` | Max differing bits (of 64) between two image fingerprints. |
-| `photo_id_patterns` | NASA codes | Regexes for photo codes. |
+| `photo_id_patterns` | `[]` | Regexes for photo/catalogue codes quoted in captions (same code = same content). |
 | `boilerplate` | `check link in bio`, lines of dots | Full-line regexes ignored when comparing captions. |
 | `overrides` | `config/dedup_overrides.yaml` | Manual `merge` / `split` lists. |
 
@@ -411,7 +426,7 @@ Known limitation: it hasn't been run against a real shop yet. The parsing follow
 
 ### `taxonomy`
 
-Category names with their allowed labels, e.g. `program: [apollo, gemini]` → tags like `program/apollo`. Lists allow several labels; `{values: [...], multi: false}` allows one. Changing the taxonomy or model uses a fresh tagging cache.
+Category names with their allowed labels, e.g. `topic: [recipes, travel]` → tags like `topic/recipes`. Lists allow several labels; `{values: [...], multi: false}` allows one. Changing the taxonomy or model uses a fresh tagging cache.
 
 #### Advanced taxonomy format (optional)
 
@@ -420,7 +435,7 @@ The `taxonomy` block normally uses category lists, as shown in the Quickstart. T
 | Key | Meaning |
 |---|---|
 | `_instructions` | Optional prompt preamble (list of lines or one string). Keys starting with `_` are not axes. |
-| any other key | One axis. Its name becomes the tag prefix (`program/apollo`). |
+| any other key | One axis. Its name becomes the tag prefix (`topic/recipes`). |
 
 Each axis:
 
@@ -437,10 +452,10 @@ Changing the model or taxonomy automatically selects a fresh cache; no manual ca
 | Key | Default | Meaning |
 |---|---|---|
 | `max` | `5` | Max hashtags in the ready caption, 0 to 5. |
-| `strategy` | `fixed` | `pool`, `fixed`, `keep_original` or `taxonomy`. |
-| `pool` | the `fixed` defaults | Topic pool sampled by `pool`. |
-| `fixed` | `#history #space #moon #exploration #science` | Used by `fixed`, and to top up `taxonomy`. |
-| `taxonomy` | `{}` | Tag → hashtag map, e.g. `program/apollo: "#apollo"`. |
+| `strategy` | `keep_original` | `keep_original`, `fixed`, `pool` or `taxonomy`. |
+| `pool` | `[]` | Hashtags sampled by `pool` (required for that strategy). |
+| `fixed` | `[]` | Used by `fixed`, and to top up `taxonomy`. |
+| `taxonomy` | `{}` | Tag → hashtag map, e.g. `topic/recipes: "#recipes"`. |
 
 ### `queue`
 

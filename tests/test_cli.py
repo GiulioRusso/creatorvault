@@ -17,7 +17,7 @@ def test_init_copies_templates_and_refuses_overwrite(tmp_path):
     dest = tmp_path / "config"
     cli.main(["init", "--dir", str(dest)])
     assert yaml.safe_load((dest / "config.yaml").read_text())["paths"]
-    assert "program" in yaml.safe_load((dest / "config.yaml").read_text())["taxonomy"]
+    assert "topic" in yaml.safe_load((dest / "config.yaml").read_text())["taxonomy"]
     assert {p.name for p in dest.iterdir()} == {"config.yaml"}
     with pytest.raises(SystemExit, match="Refusing to overwrite"):
         cli.main(["init", "--dir", str(dest)])

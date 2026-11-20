@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from harness import SPACE_HASHTAGS
 
 from creatorvault.hashtags import HASHTAG, HashtagConfig, ready_caption, split_caption
 from creatorvault.models import Content, Publication
@@ -41,11 +42,14 @@ def test_strategies():
     keep = HashtagConfig(strategy="keep_original")
     assert ready_caption(CAPTIONS[1], {}, keep).endswith("\n.\n#valentines #moon #a #b #c")
 
-    tax = HashtagConfig(strategy="taxonomy", taxonomy={"program/apollo": "#apollo"})
+    tax = HashtagConfig(
+        strategy="taxonomy", taxonomy={"program/apollo": "#apollo"}, fixed=SPACE_HASHTAGS
+    )
     assert ready_caption("Hi", TAGS, tax) == "Hi\n.\n#apollo #history #space #moon #exploration"
     assert ready_caption("Hi", {}, tax) == "Hi\n.\n#history #space #moon #exploration #science"
 
-    assert ready_caption("Hi #x", {}, HashtagConfig(fixed=[])) == "Hi"
+    assert ready_caption("Hi #x", {}, HashtagConfig(strategy="fixed")) == "Hi"
+    assert ready_caption("Hi #x", {}, HashtagConfig()) == "Hi\n.\n#x"  # default keeps own
 
 
 @pytest.mark.parametrize(

@@ -200,11 +200,11 @@ def drafts_report(contents: list[Content]) -> list[dict[str, Any]]:
 def queries(taxonomy: dict[str, Any]) -> list[str]:
     """Ready-to-use Dataview queries over the archive and the pool."""
     axes = axis_names(taxonomy)
-    primary = axes[0] if axes else "program"
+    primary = axes[0] if axes else "topic"
     secondary = axes[-1] if len(axes) > 1 else primary
     primary_vals = axis_values(taxonomy.get(primary, {}))
     secondary_vals = axis_values(taxonomy.get(secondary, {}))
-    example_primary = primary_vals[0] if primary_vals else "apollo"
+    example_primary = primary_vals[0] if primary_vals else "example"
     example_secondary = secondary_vals[0] if secondary_vals else "anecdote"
 
     lines = [

@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 import yaml
+from harness import NASA_PATTERNS
 
 from creatorvault import cli, dedup
 from creatorvault.dedup import (
     DEFAULT_BOILERPLATE,
-    DEFAULT_PHOTO_ID_PATTERNS,
     DedupConfig,
     caption_pairs,
     normalize_caption,
@@ -36,6 +36,7 @@ def pub(n: int, caption: str, media: list[Path] | None = None, year: int = 2024)
 
 
 def cfg(tmp_path: Path, **kw) -> DedupConfig:
+    kw.setdefault("photo_id_patterns", NASA_PATTERNS)
     return DedupConfig(overrides=tmp_path / "overrides.yaml", **kw)
 
 
@@ -48,7 +49,7 @@ def groups(contents) -> list[list[str]]:
 
 def test_photo_ids_normalized():
     text = "as14-66-09302, AS14-66-9302, S69-12345_G01-S, xAS11-40-5903, ISS030-E-12345, GT4-1-2"
-    assert photo_ids(text, DEFAULT_PHOTO_ID_PATTERNS) == [
+    assert photo_ids(text, NASA_PATTERNS) == [
         "AS14-66-9302",
         "S69-12345_G01-S",
         "GT4-1-2",

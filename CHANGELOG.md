@@ -28,6 +28,7 @@
 - CSV insights preserve multiline captions with escaped quotes and infer slash-date order per file from unambiguous dates.
 
 ### Changed
+- Generic defaults: no photo-code patterns (`dedup.photo_id_patterns: []`), `hashtags.strategy: keep_original` with empty `fixed`/`pool`, neutral model prompts and template taxonomy. Page-specific values (e.g. NASA photo codes) now belong in your config.
 - Vault layout: `archive/` (dated notes) + `pool/` (undated posts, the only copy of the media) + `Review.md` + `run.log`. No `attachments/`, `Post Archive.md`, CSV reports or manifest; caches live in `.creatorvault-cache/` outside the vault and the export is extracted to a temporary folder.
 - Vault notes keep one prepared Description with up to five hashtags; the original-caption section and original-hashtag lint metadata are no longer written.
 - Tag caches are separated by model and taxonomy, so edited categories no longer reuse obsolete labels.

@@ -11,16 +11,15 @@ from typing import Any
 
 HASHTAG = re.compile(r"#(\w+)")
 STRATEGIES = ("fixed", "keep_original", "taxonomy", "pool")
-DEFAULT_FIXED = ["#history", "#space", "#moon", "#exploration", "#science"]
 
 
 @dataclass
 class HashtagConfig:
     max: int = 5
-    strategy: str = "fixed"
-    fixed: list[str] = field(default_factory=lambda: list(DEFAULT_FIXED))
-    taxonomy: dict[str, str] = field(default_factory=dict)  # "program/apollo" -> "#apollo"
-    pool: list[str] = field(default_factory=lambda: list(DEFAULT_FIXED))
+    strategy: str = "keep_original"
+    fixed: list[str] = field(default_factory=list)
+    taxonomy: dict[str, str] = field(default_factory=dict)  # "topic/recipes" -> "#recipes"
+    pool: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> HashtagConfig:
@@ -39,6 +38,8 @@ class HashtagConfig:
             not isinstance(tag, str) or not re.fullmatch(r"#?\w+", tag.strip()) for tag in cfg.pool
         ):
             raise SystemExit("[!] hashtags.pool must be a list of individual hashtag names.")
+        if cfg.strategy == "pool" and not cfg.pool:
+            raise SystemExit("[!] hashtags.strategy: pool needs a hashtags.pool list.")
         return cfg
 
 

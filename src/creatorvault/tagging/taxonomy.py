@@ -55,7 +55,7 @@ def axis_description(spec: dict[str, Any]) -> str:
 
 
 DEFAULT_INSTRUCTIONS = [
-    "You are an archivist cataloguing posts from a page about space exploration.",
+    "You are an archivist cataloguing the posts of a social-media page.",
     "For each caption, assign the correct values for every axis of the taxonomy below.",
     "",
     "RULES:",

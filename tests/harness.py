@@ -16,6 +16,15 @@ TESTS = Path(__file__).parent
 FIXTURES = TESTS / "fixtures" / "archive"
 GOLDEN = TESTS / "golden"
 MOCK_MODEL = "mock-model:1b"
+# The synthetic fixtures quote NASA photo codes, as a real space page would.
+NASA_PATTERNS = [
+    r"AS\d{2}-\d{2,3}-\d{4,5}",
+    r"S\d{2}-\d{4,5}(?:_G\d{2}(?:-S)?)?",
+    r"GT\d+-\d+-\d+",
+    r"STS\d{2,3}-\d+-\d+",
+    r"ISS\d{3}-E-\d+",
+]
+SPACE_HASHTAGS = ["#history", "#space", "#moon", "#exploration", "#science"]
 TAXONOMY = yaml.safe_load((FIXTURES / "config.yaml").read_text(encoding="utf-8"))["taxonomy"]
 
 # Two golden runs that between them hit both rank scopes, both metrics,
@@ -45,6 +54,8 @@ def write_config(run: str, tmp: Path) -> Path:
     }
     cfg["taxonomy"] = copy.deepcopy(TAXONOMY)
     cfg.setdefault("dedup", {})["overrides"] = str(tmp / "no-overrides.yaml")
+    cfg["dedup"]["photo_id_patterns"] = NASA_PATTERNS
+    cfg.setdefault("hashtags", {"strategy": "fixed", "fixed": SPACE_HASHTAGS})
     path = tmp / "config.yaml"
     path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
     return path
