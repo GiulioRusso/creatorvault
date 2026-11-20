@@ -4,8 +4,9 @@ config/config-*.yaml
 .claude/
 PLAN-*.md
 
-data/ig-export/*
-data/insights/*
+# Your page's data, whatever the folder names.
+data/*
+!data/.gitkeep
 obsidian-output/
 obsidian-output-*/
 vault/
@@ -13,7 +14,6 @@ vault-*/
 queue/
 .creatorvault-cache/
 /meta_catalog*.csv
-data/meta-drafts/
 
 # --- Python ---
 .venv/
