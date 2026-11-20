@@ -67,42 +67,77 @@
   const editorUrl = (id) =>
     `/latest/composer/?asset_id=${qs.get("asset_id")}&business_id=${qs.get("business_id")}` +
     `&business_content_id=${id}&ref=biz_web_content_manager_draft_edit&context_ref=POSTS`;
-  const frame = document.createElement("iframe");
-  frame.style.cssText =
-    "position:fixed;right:0;bottom:0;width:1280px;height:1000px;opacity:0.01;pointer-events:none;z-index:-1";
-  document.body.appendChild(frame);
+  // One fresh frame per draft. Reusing a frame (changing its src) makes the
+  // composer ask "Leave site?" and, if the navigation is cancelled, every
+  // following draft is read from the same editor (same photo over and over).
+  // Removing a frame never prompts.
+  let frame = null;
+  const closeFrame = () => {
+    if (!frame) return;
+    try { frame.contentWindow.onbeforeunload = null; } catch {}
+    frame.remove();
+    frame = null;
+  };
+  const openFrame = (url) => {
+    closeFrame();
+    frame = document.createElement("iframe");
+    frame.style.cssText =
+      "position:fixed;right:0;bottom:0;width:1280px;height:1000px;opacity:0.01;pointer-events:none;z-index:-1";
+    frame.src = url;
+    document.body.appendChild(frame);
+    return frame;
+  };
 
   const isMedia = (im) =>
     /fbcdn\.net/.test(im.src) && !/rsrc\.php/.test(im.src) &&
     im.naturalWidth >= CONFIG.minImageSide && im.naturalHeight >= CONFIG.minImageSide;
+  const fileOf = (url) => new URL(url).pathname.split("/").pop();
+  // Compare captions on letters only: the list and the editor format spaces,
+  // emoji and line breaks differently.
+  const norm = (t) => (t || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 40);
 
-  const readEditor = async (id) => {
-    frame.src = editorUrl(id);
+  let previousFiles = new Set(); // media of the last draft read
+  const readEditor = async (it) => {
+    const f = openFrame(editorUrl(it.id));
     const t0 = Date.now();
     let state = "editor not ready";
     while (Date.now() - t0 < CONFIG.editorTimeoutS * 1000) {
       await sleep(1000);
       let doc;
-      try { doc = frame.contentDocument; } catch { continue; }
+      try { doc = f.contentDocument; } catch { continue; }
       if (!doc || !/composer/.test(doc.location.pathname)) continue;
+      if (!doc.location.search.includes(`business_content_id=${it.id}`)) {
+        state = "the editor opened another draft";
+        continue;
+      }
       const editor = doc.querySelector("[contenteditable=true]");
       const videos = [...doc.querySelectorAll("video")].map((v) => v.currentSrc || v.src)
         .filter((u) => /^https:/.test(u));
-      if (editor && ([...doc.querySelectorAll("img")].some(isMedia) || videos.length)) {
-        await sleep(1500); // let every carousel image load
-        const byFile = new Map(); // preview and editor show the same photo twice
-        for (const im of [...doc.querySelectorAll("img")].filter(isMedia)) {
-          const file = new URL(im.src).pathname.split("/").pop();
-          const prev = byFile.get(file);
-          if (!prev || im.naturalWidth > prev.naturalWidth) byFile.set(file, im);
-        }
-        return {
-          caption: editor.innerText.replace(/​/g, "").trim(),
-          media: [...[...byFile.values()].map((im) => ["jpg", im.src]),
-                  ...[...new Set(videos)].map((u) => ["mp4", u])],
-        };
+      if (!editor || !([...doc.querySelectorAll("img")].some(isMedia) || videos.length)) {
+        state = editor ? "no media found" : "editor not ready";
+        continue;
       }
-      state = editor ? "no media found" : "editor not ready";
+      const caption = editor.innerText.replace(/\u200b/g, "").trim();
+      if (norm(it.caption) && norm(caption) && norm(it.caption) !== norm(caption)) {
+        state = "caption does not match the draft in the list";
+        continue;
+      }
+      await sleep(1500); // let every carousel image load
+      const byFile = new Map(); // preview and editor show the same photo twice
+      for (const im of [...doc.querySelectorAll("img")].filter(isMedia)) {
+        const file = fileOf(im.src);
+        const prev = byFile.get(file);
+        if (!prev || im.naturalWidth > prev.naturalWidth) byFile.set(file, im);
+      }
+      const media = [...[...byFile.values()].map((im) => ["jpg", im.src]),
+                     ...[...new Set(videos)].map((u) => ["mp4", u])];
+      const files = new Set(media.map(([, u]) => fileOf(u)));
+      if (files.size && [...files].every((x) => previousFiles.has(x))) {
+        state = "same media as the previous draft";
+        continue;
+      }
+      previousFiles = files;
+      return { caption, media };
     }
     throw new Error(`timeout: ${state}`);
   };
@@ -146,7 +181,7 @@
   const files = [], drafts = [], failed = [];
   for (const [i, it] of items.entries()) {
     try {
-      const ed = await readEditor(it.id);
+      const ed = await readEditor(it);
       const media = [];
       for (const [j, [ext, url]] of ed.media.entries()) {
         const name = `${it.id}-${String(j + 1).padStart(2, "0")}.${ext}`;
@@ -169,7 +204,7 @@
       log(`${i + 1}/${items.length} FAILED ${it.id}: ${err.message || err}`);
     }
   }
-  frame.remove();
+  closeFrame();
   log(`Done: ${drafts.length} exported, ${failed.length} failed.`);
   if (failed.length) console.table(failed);
   if (CONFIG.dryRun) {
