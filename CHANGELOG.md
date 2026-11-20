@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- `drafts-script`: every draft opens in a fresh hidden frame. Reusing one frame made Business Suite ask "Leave site?"; cancelling it left the script reading the same draft (same photo) for every following one. Each read is now also checked against the draft id, the caption in the list and the previous draft's media, and fails instead of exporting a wrong copy.
+
 ### Added
 - `creatorvault drafts-script`: prints a browser script that exports Meta Business Suite drafts (full captions, full-size media) into a `meta-drafts-*.zip`. Zips dropped in `paths.meta_drafts` are read by `build`, `queue` and `doctor` next to `drafts.json`; the same draft in several files counts once (latest `updated` wins).
 - Local LLM review of ambiguous insight joins and duplicate candidates, with validated decisions, caches and conservative fallbacks: nothing is left for manual review. Decisions are listed in `Review.md`.
