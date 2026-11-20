@@ -19,7 +19,7 @@
     periods: [],
     limit: 0, // stop after N drafts; 3 is a good first test
     dryRun: false, // true = list the drafts in the console, no download
-    minImageSide: 600, // smaller images are thumbnails, not media
+    minImageSide: 600, // smaller images count only if the Media panel lists their size
     editorTimeoutS: 30,
   };
 
@@ -88,9 +88,16 @@
     return frame;
   };
 
-  const isMedia = (im) =>
-    /fbcdn\.net/.test(im.src) && !/rsrc\.php/.test(im.src) &&
-    im.naturalWidth >= CONFIG.minImageSide && im.naturalHeight >= CONFIG.minImageSide;
+  // A draft's media: images from Meta's content CDN whose size is listed in
+  // the editor's Media panel ("500 x 625"), or big enough not to be an avatar
+  // or a thumbnail. The panel check keeps small originals (e.g. 500x625) that
+  // minImageSide alone would drop.
+  const panelSizes = (doc) =>
+    new Set([...((doc.body && doc.body.innerText) || "").matchAll(/\b(\d{3,4}) x (\d{3,4})\b/g)].map((m) => `${m[1]}x${m[2]}`));
+  const isMedia = (im, sizes) =>
+    /scontent[^/]*\.fbcdn\.net/.test(im.src) &&
+    (sizes.has(`${im.naturalWidth}x${im.naturalHeight}`) ||
+      (im.naturalWidth >= CONFIG.minImageSide && im.naturalHeight >= CONFIG.minImageSide));
   const fileOf = (url) => new URL(url).pathname.split("/").pop();
   // Compare captions on letters only: the list and the editor format spaces,
   // emoji and line breaks differently.
@@ -105,7 +112,7 @@
       await sleep(1000);
       let doc;
       try { doc = f.contentDocument; } catch { continue; }
-      if (!doc || !/composer/.test(doc.location.pathname)) continue;
+      if (!doc || !doc.body || !/composer/.test(doc.location.pathname)) continue;
       if (!doc.location.search.includes(`business_content_id=${it.id}`)) {
         state = "the editor opened another draft";
         continue;
@@ -113,7 +120,9 @@
       const editor = doc.querySelector("[contenteditable=true]");
       const videos = [...doc.querySelectorAll("video")].map((v) => v.currentSrc || v.src)
         .filter((u) => /^https:/.test(u));
-      if (!editor || !([...doc.querySelectorAll("img")].some(isMedia) || videos.length)) {
+      const sizes = panelSizes(doc);
+      const images = [...doc.querySelectorAll("img")].filter((im) => isMedia(im, sizes));
+      if (!editor || !(images.length || videos.length)) {
         state = editor ? "no media found" : "editor not ready";
         continue;
       }
@@ -124,7 +133,7 @@
       }
       await sleep(1500); // let every carousel image load
       const byFile = new Map(); // preview and editor show the same photo twice
-      for (const im of [...doc.querySelectorAll("img")].filter(isMedia)) {
+      for (const im of [...doc.querySelectorAll("img")].filter((im) => isMedia(im, panelSizes(doc)))) {
         const file = fileOf(im.src);
         const prev = byFile.get(file);
         if (!prev || im.naturalWidth > prev.naturalWidth) byFile.set(file, im);
