@@ -62,6 +62,14 @@ queue:
   min_repost_months: 12
   out: queue
 
+# `creatorvault import-drafts`: new Meta drafts -> the existing pool, without
+# rebuilding it. New contents get `origin: manual` (builds never touch them).
+# drafts_import:
+#   pool_posts: vault/pool           # Receives posts.
+#   pool_reels: vault-reels/pool     # Receives reels (omit to skip them).
+#   # report: data/meta-drafts/import-report.csv
+#   # dry_run: true                  # Only the report, nothing written.
+
 # `creatorvault catalog`: shop listing page -> Meta Commerce Manager CSV.
 # catalog:
 #   shop_url: https://example.com/shop

@@ -11,6 +11,7 @@
 | [**Vault**](#vault) | `creatorvault build` | Instagram export, Meta insights, Meta drafts | Obsidian vault: dated `archive/` notes with metrics, rank and tags, an undated [content pool](#content-pool), `Review.md` and `run.log` |
 | [**Catalog**](#catalog) | `creatorvault catalog` | your shop's product listing page | CSV for Meta Commerce Manager (Facebook/Instagram shop) |
 | [Queue](#queue) | `creatorvault queue` | the vault's contents | images + ready captions for the next posting slots |
+| [Import drafts](#import-drafts-into-an-existing-pool) | `creatorvault import-drafts` | Meta drafts | new posts added to an existing pool, without rebuilding it |
 
 Everything runs on your machine: no app is connected to your account and no Meta API is called. Tagging and doubt resolution use a small model through [Ollama](https://ollama.com), locally.
 
@@ -209,6 +210,35 @@ The same draft id in more than one file counts once: the entry with the latest `
 | `content_type` | no | `posts` (default) or `reels`; used by `content_types` selection. |
 
 Drafts go through deduplication with the published posts: a draft of a published post makes that note `status: published+draft` (a potential repost), a draft never published becomes a `status: draft` note, and several drafts of the same content become one note listing all their `draft_ids`. The **Meta drafts** table in `Review.md` has one row per draft with its note, status and `duplicate_of`: the drafts with a `duplicate_of` pointing to another draft are the redundant ones to delete in Business Suite.
+
+
+#### Import drafts into an existing pool
+
+`build` rebuilds the pool's `origin: archive` folders, which would undo edits made by hand in a pool you keep elsewhere (e.g. its own Git repo). To add only the drafts that are not there yet, point the `drafts_import` section at that pool and run:
+
+```bash
+creatorvault import-drafts --config config/config.yaml
+```
+
+```yaml
+drafts_import:
+  pool_posts: ../my-vault/posts/pool    # receives posts
+  pool_reels: ../my-vault/reels/pool    # receives reels (omit to skip them)
+  # dry_run: true                       # only the report
+```
+
+The command:
+- reads every zip and `drafts.json` in `paths.meta_drafts`;
+- skips a draft that repeats a post already in either pool. A repeat is the same photo code, the same image (dHash, needs Pillow) or the same caption, with the `dedup` settings `build` uses;
+- writes each new content as `<pool>/<slug>/post.md` + `01.jpg`…, in the [content pool](#content-pool) format, with `origin: manual`, tags (if `tagging` is on) and at most `hashtags.max` hashtags. Several drafts of the same content become one post (the latest wins); drafts without media are skipped. Nothing already in the pool is modified, so running it again adds nothing new.
+- writes `import-report.csv` in `paths.meta_drafts`, one row per draft:
+
+| `status` | Meaning |
+|---|---|
+| `new` | written; `detail` is the folder. "similar to …: check it" flags a borderline caption match. |
+| `duplicate of pool` | already in the pool; `detail` is the matching folder. Delete it in Business Suite or keep it as a repost. |
+| `duplicate draft` | another draft of the same content was newer. |
+| `skipped` | no media in the export. |
 
 
 ### Content pool
@@ -467,6 +497,17 @@ Changing the model or taxonomy automatically selects a fresh cache; no manual ca
 | `time` | `"19:30"` | Posting time written to `queue.csv`. |
 | `min_repost_months` | `12` | A published content is a repost candidate once it hasn't been out this long. |
 | `out` | `queue` | Output folder. |
+
+### `drafts_import`
+
+Used only by `creatorvault import-drafts`, see [Import drafts](#import-drafts-into-an-existing-pool).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `pool_posts` | none | Pool folder that receives posts. At least one of the two pools is required. |
+| `pool_reels` | none | Pool folder that receives reels; without it, reels are reported but not written. |
+| `report` | `<paths.meta_drafts>/import-report.csv` | CSV with one row per draft. |
+| `dry_run` | `false` | `true` writes only the report. |
 
 ### `catalog`
 

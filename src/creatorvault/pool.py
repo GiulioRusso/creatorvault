@@ -30,9 +30,9 @@ def pool_title(content: Content) -> str:
     return f"Post {content.id}" if title.startswith("Post from ") else title
 
 
-def post_md(content: Content, media: list[str]) -> str:
+def post_md(content: Content, media: list[str], origin: str = ORIGIN) -> str:
     kinds = sorted({p.content_type for p in content.publications})
-    fm = ["---", f"id: {content.id}", f"origin: {ORIGIN}"]
+    fm = ["---", f"id: {content.id}", f"origin: {origin}"]
     fm.append(f"content_type: {'reels' if 'reels' in kinds else 'posts'}")
     fm.append(f"format: {'carousel' if len(media) > 1 else 'single'}")
     fm.append(f"media: [{', '.join(media)}]")
