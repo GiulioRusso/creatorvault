@@ -1,4 +1,5 @@
-"""Command-line entry point: init, doctor, build, queue, catalog, drafts-script.
+"""Command-line entry point: init, doctor, build, queue, catalog, drafts-script,
+import-drafts.
 
 Every option lives in the config file; the only flag is --config."""
 
@@ -20,6 +21,7 @@ from pathlib import Path
 
 from creatorvault.config import CatalogConfig, Settings, load_config, load_timezone, resolve
 from creatorvault.dedup import dedup
+from creatorvault.drafts_import import REPORT, import_drafts
 from creatorvault.hashtags import ready_caption
 from creatorvault.insights.meta import (
     discover_insight_files,
@@ -301,6 +303,35 @@ def drafts_script() -> None:
 
 
 # --------------------------------------------------------------------------
+# import-drafts
+# --------------------------------------------------------------------------
+
+
+def import_drafts_cmd(s: Settings) -> None:
+    """Meta drafts -> new `origin: manual` folders in the existing pool(s)."""
+    cfg = s.drafts_import
+    if not cfg.pools:
+        raise SystemExit(
+            "[!] Set drafts_import.pool_posts and/or drafts_import.pool_reels: "
+            "the pool folders that receive the new drafts."
+        )
+    RUN_LOG.clear()
+    s.cache_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="creatorvault-") as tmp:
+        drafts = parse_meta_drafts(s.meta_drafts, Path(tmp))
+        if not drafts:
+            raise SystemExit(f"[!] No drafts in {s.meta_drafts}: run drafts-script first.")
+        import_drafts(
+            drafts,
+            cfg,
+            s.dedup,
+            s.hashtags,
+            tagger=lambda contents: tag(contents, s.taxonomy, s),
+            report=cfg.report or s.meta_drafts / REPORT,
+        )
+
+
+# --------------------------------------------------------------------------
 # catalog
 # --------------------------------------------------------------------------
 
@@ -476,6 +507,7 @@ def main(argv: list[str] | None = None) -> None:
         ("doctor", "check config, exports, timezone, taxonomy and Ollama"),
         ("queue", "prepare images + captions for the next posting slots (queue: section)"),
         ("catalog", "shop listing page -> Meta catalog CSV (catalog: section)"),
+        ("import-drafts", "add new Meta drafts to the existing pool (drafts_import: section)"),
     ):
         p = sub.add_parser(name, help=help_)
         p.add_argument(
@@ -501,5 +533,7 @@ def main(argv: list[str] | None = None) -> None:
         catalog(load_config(args.config))
     elif args.command == "drafts-script":
         drafts_script()
+    elif args.command == "import-drafts":
+        import_drafts_cmd(settings_for(args))
     else:
         build(settings_for(args), args.config)

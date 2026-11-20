@@ -7,6 +7,7 @@
 - `drafts-script`: every draft opens in a fresh hidden frame. Reusing one frame made Business Suite ask "Leave site?"; cancelling it left the script reading the same draft (same photo) for every following one. Each read is now also checked against the draft id, the caption in the list and the previous draft's media, and fails instead of exporting a wrong copy.
 
 ### Added
+- `creatorvault import-drafts` and the `drafts_import:` section: add the Meta drafts that are not in an existing pool yet, as `origin: manual` posts (tags, at most `hashtags.max` hashtags), without rebuilding or touching the pool. Repeats are found with the same dedup as `build`; `import-report.csv` lists every draft as new, duplicate of pool, duplicate draft or skipped. `dry_run: true` writes only the report.
 - `creatorvault drafts-script`: prints a browser script that exports Meta Business Suite drafts (full captions, full-size media) into a `meta-drafts-*.zip`. Zips dropped in `paths.meta_drafts` are read by `build`, `queue` and `doctor` next to `drafts.json`; the same draft in several files counts once (latest `updated` wins).
 - Local LLM review of ambiguous insight joins and duplicate candidates, with validated decisions, caches and conservative fallbacks: nothing is left for manual review. Decisions are listed in `Review.md`.
 - Undated content pool in `<out>/pool/`: one `<slug>/post.md` + media folder per selected content, with the prepared description, tags and rank, no publication dates. Hand-written pool posts (`origin: manual`) are never overwritten.

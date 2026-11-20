@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 
 from creatorvault.dedup import DedupConfig
+from creatorvault.drafts_import import DraftsImportConfig
 from creatorvault.hashtags import HashtagConfig
 from creatorvault.queue import QueueConfig
 from creatorvault.review import ReviewConfig
@@ -44,6 +45,7 @@ SECTIONS = {
     "hashtags",
     "queue",
     "catalog",
+    "drafts_import",
     "advanced",
 }
 ADVANCED = {
@@ -144,6 +146,7 @@ class Settings:
     ig_exports: list[Path] = field(default_factory=list)
     content_types: list[str] = field(default_factory=lambda: ["posts"])
     review: ReviewConfig = field(default_factory=ReviewConfig)
+    drafts_import: DraftsImportConfig = field(default_factory=DraftsImportConfig)
 
 
 def resolve(cfg: dict[str, Any]) -> Settings:
@@ -209,6 +212,7 @@ def resolve(cfg: dict[str, Any]) -> Settings:
         review=ReviewConfig.from_dict(
             cfg.get("review") or {}, tagging_cfg.get("model", DEFAULT_MODEL)
         ),
+        drafts_import=DraftsImportConfig.from_dict(cfg.get("drafts_import")),
     )
 
 
