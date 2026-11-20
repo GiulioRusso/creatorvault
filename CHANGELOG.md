@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- `drafts-script`: drafts whose original image is smaller than 600 px (e.g. 500x625) no longer fail with "no media found": an image counts as media when the editor's Media panel lists its size. The editor is read only once its page has loaded.
 - `drafts-script`: every draft opens in a fresh hidden frame. Reusing one frame made Business Suite ask "Leave site?"; cancelling it left the script reading the same draft (same photo) for every following one. Each read is now also checked against the draft id, the caption in the list and the previous draft's media, and fails instead of exporting a wrong copy.
 
 ### Added
