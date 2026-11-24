@@ -1,7 +1,7 @@
 """Command-line entry point: init, doctor, build, queue, catalog, drafts-script,
-import-drafts.
+import-drafts, compress.
 
-Every option lives in the config file; the only flag is --config."""
+Every option lives in the config file; the only flag is --config (compress takes paths)."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
 
+from creatorvault.compress import compress
 from creatorvault.config import CatalogConfig, Settings, load_config, load_timezone, resolve
 from creatorvault.dedup import dedup
 from creatorvault.drafts_import import REPORT, import_drafts
@@ -520,6 +521,12 @@ def main(argv: list[str] | None = None) -> None:
         "drafts-script",
         help="print the browser script that exports Business Suite drafts into paths.meta_drafts",
     )
+    p_comp = sub.add_parser(
+        "compress",
+        help="shrink videos to Meta reel size (720x1280 H.264, needs ffmpeg)",
+    )
+    p_comp.add_argument("paths", nargs="+", type=Path, help="video files or folders (recursive)")
+    p_comp.add_argument("--bitrate", default="750k", help="video bitrate (default: 750k)")
     args = ap.parse_args(sys.argv[1:] if argv is None else argv)
 
     if args.command == "init":
@@ -535,5 +542,7 @@ def main(argv: list[str] | None = None) -> None:
         drafts_script()
     elif args.command == "import-drafts":
         import_drafts_cmd(settings_for(args))
+    elif args.command == "compress":
+        compress(args.paths, args.bitrate)
     else:
         build(settings_for(args), args.config)

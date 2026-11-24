@@ -1,6 +1,6 @@
 # creatorvault
 
-**Local tools for creators on Instagram and Meta: turn your exports into an Obsidian vault and a reusable content pool, and turn your shop into a Meta product catalog.**
+**Local tools for creators on Instagram and Meta: turn your exports into an Obsidian vault and a reusable content pool, turn your shop into a Meta product catalog, and shrink your videos to reel size.**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/GiulioRusso/creatorvault/ci.yml?branch=main&label=CI&logo=github)](https://github.com/GiulioRusso/creatorvault/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)](pyproject.toml)
@@ -12,8 +12,44 @@
 | [**Catalog**](#catalog) | `creatorvault catalog` | your shop's product listing page | CSV for Meta Commerce Manager (Facebook/Instagram shop) |
 | [Queue](#queue) | `creatorvault queue` | the vault's contents | images + ready captions for the next posting slots |
 | [Import drafts](#import-drafts-into-an-existing-pool) | `creatorvault import-drafts` | Meta drafts | new posts added to an existing pool, without rebuilding it |
+| [Compress](#compress) | `creatorvault compress` | your own videos (.mp4, .mov, .m4v) | reels at the size Meta serves back: 720x1280 H.264, ~5 MB per minute |
 
-Everything runs on your machine: no app is connected to your account and no Meta API is called. Tagging and doubt resolution use a small model through [Ollama](https://ollama.com), locally.
+```mermaid
+flowchart LR
+    subgraph inputs["Your files"]
+        IG["Instagram export ZIP"]
+        INS["Meta insights CSV/XLSX"]
+        DR["Meta drafts ZIP"]
+        SHOP["Shop listing page"]
+        VID["Your videos<br/>.mp4 / .mov"]
+    end
+    subgraph cmds["Commands"]
+        BUILD["creatorvault build"]
+        QUEUE["creatorvault queue"]
+        CAT["creatorvault catalog"]
+        DS["creatorvault drafts-script"]
+        COMP["creatorvault compress"]
+    end
+    subgraph outs["What you get"]
+        VAULT["Obsidian vault<br/>archive/ + pool/ + Review.md"]
+        Q["queue/<br/>images + captions + queue.csv"]
+        CSV["meta_catalog.csv"]
+        SMALL[".mp4 at reel size<br/>720x1280 H.264"]
+    end
+    DS -. "browser script" .-> DR
+    IG --> BUILD
+    INS --> BUILD
+    DR --> BUILD
+    IG --> QUEUE
+    INS --> QUEUE
+    DR --> QUEUE
+    BUILD --> VAULT
+    QUEUE --> Q
+    SHOP --> CAT --> CSV
+    VID --> COMP --> SMALL
+```
+
+`queue` runs the same steps as `build` and then picks from the result. Everything runs on your machine: no app is connected to your account and no Meta API is called. Tagging and doubt resolution use a small model through [Ollama](https://ollama.com), locally.
 
 ## Install and configure
 
@@ -25,7 +61,7 @@ python3 -m venv .venv
 .venv/bin/creatorvault init          # writes config/config.yaml; refuses to overwrite
 ```
 
-**The config file is the only entry point.** Every option, for every tool, lives in `config/config.yaml`; commands take nothing but `--config` (default `config/config.yaml`); `drafts-script` takes nothing at all:
+**The config file is the only entry point.** Every option, for every tool, lives in `config/config.yaml`; commands take nothing but `--config` (default `config/config.yaml`); `drafts-script` takes nothing at all and `compress` takes only paths:
 
 ```bash
 creatorvault doctor  --config config/config.yaml   # PASS/WARN/FAIL for each input
@@ -33,6 +69,7 @@ creatorvault build   --config config/config.yaml   # vault: archive + pool
 creatorvault queue   --config config/config.yaml   # next posting slots
 creatorvault catalog --config config/config.yaml   # shop -> Meta catalog CSV
 creatorvault drafts-script | pbcopy                # browser script: Business Suite drafts -> zip
+creatorvault compress vault/pool                   # shrink videos to Meta reel size (needs ffmpeg)
 ```
 
 Options that are unknown or were removed fail with a message naming the replacement, so a typo never silently falls back to a default. Relative paths resolve from the folder you run the command in. [config/example.yaml](config/example.yaml) is a shareable starting point; the personal `config/config.yaml` is ignored by Git. Commands below use `creatorvault` for brevity: prefix it with `.venv/bin/` or activate the environment.
@@ -42,6 +79,24 @@ Options that are unknown or were removed fail with a message naming the replacem
 ## Vault
 
 One note per **unique content**, even when it went out several times: media, a caption ready to repost with at most 5 hashtags, metrics, its performance rank, semantic tags and every publication.
+
+What `creatorvault build` does, step by step (details in [How it works](#how-it-works)):
+
+```mermaid
+flowchart TD
+    A["1 Read<br/>Instagram export: posts/reels + media<br/>Meta drafts"] --> B
+    B["2 Join metrics<br/>insights row ↔ post by publish time"] --> C
+    C["3 Rank<br/>top_percent per year or global"] --> D
+    D["4 Merge reposts<br/>same photo code, image or caption"] --> F
+    F["5 Keep the best<br/>selection.top_percentile"] --> G
+    G["6 Tag<br/>Ollama, taxonomy labels"] --> H
+    H["7 Ready caption<br/>≤ 5 hashtags"] --> W
+    W["8 Write the vault"] --> P["pool/<br/>undated post.md + media"]
+    W --> AR["archive/<br/>dated notes, embed pool media"]
+    W --> R["Review.md + run.log"]
+    B -. "unclear" .-> LM["Local model<br/>or left unassigned"]
+    D -. "borderline" .-> LM2["Local model<br/>or kept separate"]
+```
 
 ### What you get
 
@@ -178,6 +233,16 @@ The only required column is the publish time. Several header spellings (English 
 
 Business Suite has no export for drafts, so CreatorVault ships a small browser script that does it:
 
+```mermaid
+flowchart LR
+    A["Business Suite<br/>Content → Drafts<br/>scroll to the bottom"] --> B["Chrome console<br/>paste creatorvault drafts-script"]
+    B --> C["Each draft opened in a hidden frame<br/>full caption + full-size media<br/>nothing is saved"]
+    C --> D["meta-drafts-YYYYMMDD-HHMM.zip"]
+    D --> E["data/meta-drafts/"]
+    E --> F["creatorvault build"]
+```
+
+
 1. In Business Suite open **Content → Posts & reels → Drafts**, set the date filter, and scroll the list to the bottom (rows only load while you scroll).
 2. Copy the script: `creatorvault drafts-script | pbcopy` (macOS; elsewhere, copy what it prints).
 3. Open the Chrome console (`Cmd+Option+J` / `Ctrl+Shift+J`; the first time Chrome asks you to type `allow pasting`), paste and press Enter.
@@ -291,6 +356,15 @@ To add **new** posts by hand (or with an assistant), create a folder in the same
 creatorvault queue --config config/config.yaml
 ```
 
+```mermaid
+flowchart TD
+    A["Same steps as build<br/>unique, ranked, tagged contents"] --> B
+    B["Candidates<br/>1. drafts never published, oldest first<br/>2. posts not out for min_repost_months, best top_percent first<br/>skip contents without an image"] --> C
+    C["Order<br/>never two in a row with the same first-axis tag"] --> D
+    D["Dates<br/>from start, only on days, at time"] --> E
+    E["queue/<br/>NN-date-title.jpg + .txt caption<br/>queue.csv"] --> F["You upload to Buffer or Business Suite"]
+```
+
 **How it picks**, in this order:
 
 1. **Drafts never published**, oldest first.
@@ -316,28 +390,45 @@ Each run replaces the previous `queue/` files. Options are in the `queue:` secti
 
 ### How it works
 
+The steps of the [build diagram](#vault), in detail.
+
+**The join.** For each insights row:
+
 ```mermaid
-flowchart LR
-    A["Instagram export (.zip parts)"] --> E["Parse posts/reels + media"]
-    B["Meta insights (.csv/.xlsx)"] --> G
-    E --> G["Timestamp join"]
-    G -->|ambiguous| H["Local model or unassigned"]
-    G --> I["Rank: top_percent per year"]
-    P["Meta drafts (optional)"] --> Q
-    I --> Q["Dedup reposts: photo code, image, caption"]
-    Q -->|borderline| R["Local model or kept separate"]
-    Q --> F["Keep top_percentile"]
-    F --> M["Tags via Ollama"]
-    M --> S["Ready caption, ≤ 5 hashtags"]
-    S --> U["pool/: <slug>/post.md + media"]
-    S --> N["archive/: dated notes, media embedded from pool/"]
-    S --> V["Review.md + run.log"]
-    S --> T["Queue"]
+flowchart TD
+    R["Insights row"] --> W{"Posts of the same type<br/>within tolerance_minutes?"}
+    W -- "none" --> U["Metrics unassigned"]
+    W -- "one" --> A["Metrics assigned"]
+    W -- "several" --> C{"Row description clearly<br/>closer to one caption?"}
+    C -- "yes" --> A
+    C -- "no" --> M{"Local model sure?<br/>confidence ≥ min_confidence"}
+    M -- "yes" --> A
+    M -- "no / no model" --> U
 ```
 
-**The join.** The export and the insights share no ID, only a publish timestamp. Each insights row is matched to the post within `advanced.tolerance_minutes`; when several posts fall in the window, the row's description is compared with the captions. What is still ambiguous goes to the local model, which can only pick among same-type, unassigned publications within 24 hours and never invents metrics; otherwise the metrics stay unassigned.
+The export and the insights share no ID, only a publish timestamp. Each insights row is matched to the post within `advanced.tolerance_minutes`; when several posts fall in the window, the row's description is compared with the captions. What is still ambiguous goes to the local model, which can only pick among same-type, unassigned publications within 24 hours and never invents metrics; otherwise the metrics stay unassigned.
 
-**Deduplication.** The same content often goes out several times with a slightly different caption. Publications are grouped with three signals, strongest first:
+**Deduplication.** The same content often goes out several times with a slightly different caption. Each pair of publications is decided like this:
+
+```mermaid
+flowchart TD
+    P["Two publications"] --> O{"Override in<br/>dedup_overrides.yaml?"}
+    O -- "merge" --> S["Same content"]
+    O -- "split" --> X["Separate contents"]
+    O -- "none" --> PC{"Photo codes?<br/>photo_id_patterns"}
+    PC -- "same code" --> S
+    PC -- "different codes" --> X
+    PC -- "none" --> IM{"First images alike?<br/>dHash ≤ image_distance"}
+    IM -- "yes" --> S
+    IM -- "no" --> CAP{"Caption similarity"}
+    CAP -- "≥ caption_same 0.85" --> S
+    CAP -- "caption_maybe 0.70 to 0.85" --> M{"Local model sure?"}
+    CAP -- "below 0.70" --> X
+    M -- "yes, same" --> S
+    M -- "no / no model" --> X
+```
+
+The three signals, strongest first:
 
 1. **Photo code** in the caption, if you quote one (a stock, archive or catalogue ID): set the regexes in `dedup.photo_id_patterns`, e.g. `['IMG-\d{4}']`. Same code = same content, leading zeros ignored (`IMG-0042` = `IMG-42`). Two *different* codes are never merged, however similar the captions are. Off by default.
 2. **Image fingerprint**: a 64-bit dHash of the first image, matched within `dedup.image_distance` bits. Needs the `dedup` extra (Pillow); without it this signal is skipped with a warning. Videos are skipped.
@@ -375,9 +466,50 @@ The merged note is named after the **first** publication (so it doesn't move bet
 
 ---
 
+## Compress
+
+`creatorvault compress PATH...` shrinks your own videos to the size of the reels you download back from Meta. Phone and screen recordings are often 15-20 Mbps; Instagram re-encodes every reel to about 0.8 Mbps anyway, so a bigger file only weighs on your disk and your Git repo.
+
+```bash
+brew install ffmpeg                          # once (Linux: apt install ffmpeg)
+creatorvault compress vault/pool             # every video in the folder, recursively
+creatorvault compress clip.mov --bitrate 1M  # one file, higher quality
+```
+
+```mermaid
+flowchart LR
+    IN["PATH...<br/>files or folders"] --> F["Every .mp4 / .mov / .m4v<br/>recursively"]
+    F --> E["ffmpeg two-pass<br/>720x1280 max, 30 fps max<br/>H.264 at --bitrate, AAC 64k"]
+    E --> S{"Smaller than<br/>the original?"}
+    S -- "no" --> K["Kept as is"]
+    S -- "yes, .mp4" --> R["Replaced in place"]
+    S -- "yes, .mov / .m4v" --> N["New .mp4 next to it<br/>original untouched"]
+```
+
+- Output: H.264, fits inside 720x1280 keeping the aspect ratio, at most 30 fps, AAC 64 kbps audio, two-pass encode at `--bitrate` (default `750k`).
+- An `.mp4` is replaced in place. A `.mov`/`.m4v` gets a new `.mp4` next to it and is left untouched; if that `.mp4` already exists, the file is skipped.
+- A video the encode would not make smaller (already small) is kept as is.
+- It needs no config. Keep your originals elsewhere: replacing an `.mp4` cannot be undone.
+
+---
+
 ## Catalog
 
-`creatorvault catalog` turns your online shop's product listing page into a CSV in the format Meta Commerce Manager expects for a Facebook/Instagram product catalog. It needs the `shop` extra (`pip install '.[shop]'`) and the `catalog:` section of the config:
+`creatorvault catalog` turns your online shop's product listing page into a CSV in the format Meta Commerce Manager expects for a Facebook/Instagram product catalog. It needs the `shop` extra (`pip install '.[shop]'`) and the `catalog:` section of the config.
+
+```mermaid
+flowchart LR
+    A["catalog.shop_url<br/>product listing page"] --> B["Every product link"]
+    B --> C{"For each field"}
+    C -- "1st" --> J["JSON-LD Product"]
+    C -- "2nd" --> O["Open Graph tags"]
+    C -- "last" --> T["Visible text"]
+    J --> R["One CSV row<br/>Meta template columns"]
+    O --> R
+    T --> R
+    R --> CSV["catalog.out<br/>meta_catalog.csv"]
+```
+
 
 ```yaml
 catalog:
