@@ -28,6 +28,7 @@ flowchart LR
         QUEUE["creatorvault queue"]
         CAT["creatorvault catalog"]
         DS["creatorvault drafts-script"]
+        IMP["creatorvault import-drafts"]
         COMP["creatorvault compress"]
     end
     subgraph outs["What you get"]
@@ -45,6 +46,8 @@ flowchart LR
     DR --> QUEUE
     BUILD --> VAULT
     QUEUE --> Q
+    DR --> IMP
+    IMP -. "adds new posts to pool/" .-> VAULT
     SHOP --> CAT --> CSV
     VID --> COMP --> SMALL
 ```
@@ -69,6 +72,7 @@ creatorvault build   --config config/config.yaml   # vault: archive + pool
 creatorvault queue   --config config/config.yaml   # next posting slots
 creatorvault catalog --config config/config.yaml   # shop -> Meta catalog CSV
 creatorvault drafts-script | pbcopy                # browser script: Business Suite drafts -> zip
+creatorvault import-drafts --config config/config.yaml  # new drafts -> existing pool, no rebuild
 creatorvault compress vault/pool                   # shrink videos to Meta reel size (needs ffmpeg)
 ```
 
