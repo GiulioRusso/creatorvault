@@ -1,6 +1,6 @@
 # creatorvault
 
-**Local tools for creators on Instagram and Meta: turn your exports into an Obsidian vault and a reusable content pool, and turn your shop into a Meta product catalog.**
+**Local tools for creators on Instagram and Meta: turn your exports into an Obsidian vault and a reusable content pool, turn your shop into a Meta product catalog, and shrink your videos to reel size.**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/GiulioRusso/creatorvault/ci.yml?branch=main&label=CI&logo=github)](https://github.com/GiulioRusso/creatorvault/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)](pyproject.toml)
@@ -12,6 +12,7 @@
 | [**Catalog**](#catalog) | `creatorvault catalog` | your shop's product listing page | CSV for Meta Commerce Manager (Facebook/Instagram shop) |
 | [Queue](#queue) | `creatorvault queue` | the vault's contents | images + ready captions for the next posting slots |
 | [Import drafts](#import-drafts-into-an-existing-pool) | `creatorvault import-drafts` | Meta drafts | new posts added to an existing pool, without rebuilding it |
+| [Compress](#compress) | `creatorvault compress` | your own videos (.mp4, .mov, .m4v) | reels at the size Meta serves back: 720x1280 H.264, ~5 MB per minute |
 
 ```mermaid
 flowchart LR
@@ -20,17 +21,20 @@ flowchart LR
         INS["Meta insights CSV/XLSX"]
         DR["Meta drafts ZIP"]
         SHOP["Shop listing page"]
+        VID["Your videos<br/>.mp4 / .mov"]
     end
     subgraph cmds["Commands"]
         BUILD["creatorvault build"]
         QUEUE["creatorvault queue"]
         CAT["creatorvault catalog"]
         DS["creatorvault drafts-script"]
+        COMP["creatorvault compress"]
     end
     subgraph outs["What you get"]
         VAULT["Obsidian vault<br/>archive/ + pool/ + Review.md"]
         Q["queue/<br/>images + captions + queue.csv"]
         CSV["meta_catalog.csv"]
+        SMALL[".mp4 at reel size<br/>720x1280 H.264"]
     end
     DS -. "browser script" .-> DR
     IG --> BUILD
@@ -42,6 +46,7 @@ flowchart LR
     BUILD --> VAULT
     QUEUE --> Q
     SHOP --> CAT --> CSV
+    VID --> COMP --> SMALL
 ```
 
 `queue` runs the same steps as `build` and then picks from the result. Everything runs on your machine: no app is connected to your account and no Meta API is called. Tagging and doubt resolution use a small model through [Ollama](https://ollama.com), locally.
@@ -56,7 +61,7 @@ python3 -m venv .venv
 .venv/bin/creatorvault init          # writes config/config.yaml; refuses to overwrite
 ```
 
-**The config file is the only entry point.** Every option, for every tool, lives in `config/config.yaml`; commands take nothing but `--config` (default `config/config.yaml`); `drafts-script` takes nothing at all:
+**The config file is the only entry point.** Every option, for every tool, lives in `config/config.yaml`; commands take nothing but `--config` (default `config/config.yaml`); `drafts-script` takes nothing at all and `compress` takes only paths:
 
 ```bash
 creatorvault doctor  --config config/config.yaml   # PASS/WARN/FAIL for each input
@@ -64,6 +69,7 @@ creatorvault build   --config config/config.yaml   # vault: archive + pool
 creatorvault queue   --config config/config.yaml   # next posting slots
 creatorvault catalog --config config/config.yaml   # shop -> Meta catalog CSV
 creatorvault drafts-script | pbcopy                # browser script: Business Suite drafts -> zip
+creatorvault compress vault/pool                   # shrink videos to Meta reel size (needs ffmpeg)
 ```
 
 Options that are unknown or were removed fail with a message naming the replacement, so a typo never silently falls back to a default. Relative paths resolve from the folder you run the command in. [config/example.yaml](config/example.yaml) is a shareable starting point; the personal `config/config.yaml` is ignored by Git. Commands below use `creatorvault` for brevity: prefix it with `.venv/bin/` or activate the environment.
@@ -457,6 +463,33 @@ The merged note is named after the **first** publication (so it doesn't move bet
 - LLM tags depend on the model; small models make mistakes. Tags use the caption text, not the image.
 - `content_types` reads numbered `posts_*.json` and `reels.json`; stories, archived posts and the newer `posts.json` schema are not imported.
 - `archive/` belongs to the build: keep your own notes elsewhere in the vault (or in `pool/` with `origin: manual`).
+
+---
+
+## Compress
+
+`creatorvault compress PATH...` shrinks your own videos to the size of the reels you download back from Meta. Phone and screen recordings are often 15-20 Mbps; Instagram re-encodes every reel to about 0.8 Mbps anyway, so a bigger file only weighs on your disk and your Git repo.
+
+```bash
+brew install ffmpeg                          # once (Linux: apt install ffmpeg)
+creatorvault compress vault/pool             # every video in the folder, recursively
+creatorvault compress clip.mov --bitrate 1M  # one file, higher quality
+```
+
+```mermaid
+flowchart LR
+    IN["PATH...<br/>files or folders"] --> F["Every .mp4 / .mov / .m4v<br/>recursively"]
+    F --> E["ffmpeg two-pass<br/>720x1280 max, 30 fps max<br/>H.264 at --bitrate, AAC 64k"]
+    E --> S{"Smaller than<br/>the original?"}
+    S -- "no" --> K["Kept as is"]
+    S -- "yes, .mp4" --> R["Replaced in place"]
+    S -- "yes, .mov / .m4v" --> N["New .mp4 next to it<br/>original untouched"]
+```
+
+- Output: H.264, fits inside 720x1280 keeping the aspect ratio, at most 30 fps, AAC 64 kbps audio, two-pass encode at `--bitrate` (default `750k`).
+- An `.mp4` is replaced in place. A `.mov`/`.m4v` gets a new `.mp4` next to it and is left untouched; if that `.mp4` already exists, the file is skipped.
+- A video the encode would not make smaller (already small) is kept as is.
+- It needs no config. Keep your originals elsewhere: replacing an `.mp4` cannot be undone.
 
 ---
 

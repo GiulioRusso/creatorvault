@@ -8,6 +8,7 @@
 
 ### Added
 - `creatorvault import-drafts` and the `drafts_import:` section: add the Meta drafts that are not in an existing pool yet, as `origin: manual` posts (tags, at most `hashtags.max` hashtags), without rebuilding or touching the pool. Repeats are found with the same dedup as `build`; `import-report.csv` lists every draft as new, duplicate of pool, duplicate draft or skipped. `dry_run: true` writes only the report.
+- `creatorvault compress PATH...`: shrinks videos to Meta reel size (720x1280 H.264, two-pass at `--bitrate`, default 750k) with ffmpeg. `.mp4` files are replaced in place, other formats get a sibling `.mp4`; files already smaller are kept.
 - `creatorvault drafts-script`: prints a browser script that exports Meta Business Suite drafts (full captions, full-size media) into a `meta-drafts-*.zip`. Zips dropped in `paths.meta_drafts` are read by `build`, `queue` and `doctor` next to `drafts.json`; the same draft in several files counts once (latest `updated` wins).
 - Local LLM review of ambiguous insight joins and duplicate candidates, with validated decisions, caches and conservative fallbacks: nothing is left for manual review. Decisions are listed in `Review.md`.
 - Undated content pool in `<out>/pool/`: one `<slug>/post.md` + media folder per selected content, with the prepared description, tags and rank, no publication dates. Hand-written pool posts (`origin: manual`) are never overwritten.
